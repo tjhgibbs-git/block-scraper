@@ -60,6 +60,13 @@ jobs:
           echo "--- private boolean fields (HUD flag)"
           javap -p -cp "$jar" net.minecraft.client.Minecraft net.minecraft.client.gui.Gui net.minecraft.client.Options \
             | grep -E 'class |boolean [a-zA-Z]+;' || true
+          echo "--- widget click path"
+          for c in net.minecraft.client.gui.screens.Screen net.minecraft.client.gui.components.AbstractWidget \
+                   net.minecraft.client.gui.components.AbstractButton net.minecraft.client.gui.components.Button \
+                   net.minecraft.client.gui.components.events.ContainerEventHandler; do
+            javap -c -p -cp "$jar" "$c" | awk '/(mouseClicked|mouseReleased|onClick|onRelease|onPress|afterMouseAction)\(/{p=1} p&&/^$/{p=0} p' \
+              | grep -E '^  [a-z]|invoke|getfield|putfield|if|return' | head -80 || true
+          done
           echo "--- MouseHandler.onButton"
           javap -c -p -cp "$jar" net.minecraft.client.MouseHandler | sed -n '/void onButton(/,/^$/p' | grep -E 'invoke|getfield|if' | head -60 || true
       - name: Upload screenshots

@@ -34,8 +34,9 @@ probe when e2e fails.
 ## Still open
 
 1. `click` on the sample's counter button doesn't change it, through MouseHandler (run 3) or by calling
-   `Screen.mouseClicked/mouseReleased` directly (run 4, no exception). `click` now reports `pressHandled` /
-   `releaseHandled` to narrow it down.
+   `Screen.mouseClicked/mouseReleased` directly (run 4, no exception). Run 5: `pressHandled: true`,
+   `releaseHandled: false`, button unchanged. Now trying MouseHandler's exact sequence (press,
+   `Screen.afterMouseAction()`, a tick, release, `afterMouseAction()`); CI dumps the widget click bytecode on failure.
 2. 26.3 has no HUD-hidden boolean on `Minecraft`, `Gui` or `Options`. `hud on|off` now presses F1 and mcshot
    tracks the state (`status` → `hud`).
 3. Rest of M2 (tooltip, scale, lang), M3 (hot reload timing) and M4 (world, HUD, inventory) haven't run yet.

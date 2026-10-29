@@ -277,15 +277,24 @@ final class Commands {
 		JsonObject o = hover(x, y).getAsJsonObject();
 		// Simulated clicks through MouseHandler don't reach screens in 26.3 under the gametest framework, so deliver
 		// the press and release to the screen directly, as MouseHandler would.
-		boolean[] handled = context.computeOnClient(client -> {
+		// Same sequence as MouseHandler.onButton: press, afterMouseAction, a frame, release, afterMouseAction.
+		MouseButtonEvent event = new MouseButtonEvent(x, y, new MouseButtonInfo(button, 0));
+		boolean[] handled = new boolean[2];
+		context.runOnClient(client -> {
 			Screen screen = client.gui.screen();
 			if (screen == null) {
 				throw new CommandException("no screen open to click on");
 			}
-			MouseButtonEvent event = new MouseButtonEvent(x, y, new MouseButtonInfo(button, 0));
-			boolean pressed = screen.mouseClicked(event, false);
-			boolean released = screen.mouseReleased(event);
-			return new boolean[] {pressed, released};
+			handled[0] = screen.mouseClicked(event, false);
+			screen.afterMouseAction();
+		});
+		context.waitTick();
+		context.runOnClient(client -> {
+			Screen screen = client.gui.screen();
+			if (screen != null) {
+				handled[1] = screen.mouseReleased(event);
+				screen.afterMouseAction();
+			}
 		});
 		context.waitTick();
 		o.addProperty("pressHandled", handled[0]);
