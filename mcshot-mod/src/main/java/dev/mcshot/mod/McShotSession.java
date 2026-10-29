@@ -81,7 +81,7 @@ public final class McShotSession implements FabricClientGameTest {
 			client.options.narrator().set(NarratorStatus.OFF);
 			client.options.hideSplashTexts().set(true);
 			client.options.realmsNotifications().set(false);
-			Compat.clearToasts(client);
+			client.gui.toastManager().clear();
 		});
 	}
 }

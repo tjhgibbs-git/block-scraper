@@ -1,7 +1,6 @@
 package dev.mcshot.mod;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 
 import net.minecraft.client.Minecraft;
 
@@ -13,17 +12,6 @@ import dev.mcshot.core.CommandException;
  */
 final class Compat {
 	private Compat() {
-	}
-
-	/** Clears pending toasts. Best effort: shots are still taken if this fails. */
-	static void clearToasts(Minecraft client) {
-		for (Object owner : new Object[] {client, client.gui}) {
-			Object toasts = call(owner, "getToastManager", "toastManager", "toasts", "getToasts");
-			if (toasts != null && call(toasts, "clear") != null) {
-				return;
-			}
-		}
-		McShotSession.LOGGER.debug("mcshot: no toast manager found; toasts not cleared");
 	}
 
 	/** Whether the HUD is hidden (F1). */
@@ -54,22 +42,6 @@ final class Compat {
 			}
 		}
 		throw new CommandException("mcshot cannot find the HUD-hidden flag in this Minecraft version");
-	}
-
-	/** Calls the first public no-arg method that exists; returns its result (a void call returns the target), or null. */
-	private static Object call(Object target, String... names) {
-		for (String name : names) {
-			try {
-				Method m = target.getClass().getMethod(name);
-				Object result = m.invoke(target);
-				return m.getReturnType() == void.class ? target : result;
-			} catch (NoSuchMethodException e) {
-				// try the next name
-			} catch (ReflectiveOperationException | RuntimeException e) {
-				return null;
-			}
-		}
-		return null;
 	}
 
 	private static Field field(Object target, String... names) {

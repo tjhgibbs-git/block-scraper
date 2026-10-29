@@ -1,6 +1,6 @@
 package dev.mcshot.sample;
 
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
@@ -46,14 +46,18 @@ public class SampleConfigScreen extends Screen {
 	}
 
 	@Override
-	public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
-		super.render(graphics, mouseX, mouseY, delta);
+	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
+		super.extractRenderState(graphics, mouseX, mouseY, delta);
 		// Accent colour (ARGB). Change it and run `mcshot reload` to see hot reload work.
 		int accent = 0xFF3FA9F5;
 		int x = width / 2 - 110;
 		int y = height / 2 - 75;
-		graphics.renderOutline(x, y, 220, 170, accent);
-		graphics.drawCenteredString(font, title, width / 2, y + 8, accent);
+		int w = 220;
+		int h = 170;
+		graphics.fill(x, y, x + w, y + 2, accent);
+		graphics.fill(x, y + h - 2, x + w, y + h, accent);
+		graphics.fill(x, y, x + 2, y + h, accent);
+		graphics.fill(x + w - 2, y, x + w, y + h, accent);
 	}
 
 	@Override

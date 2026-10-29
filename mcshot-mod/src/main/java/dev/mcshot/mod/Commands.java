@@ -109,7 +109,11 @@ final class Commands {
 			o.addProperty("guiScaleSetting", client.options.guiScale().get());
 			o.addProperty("lang", client.options.languageCode);
 			o.addProperty("inWorld", client.level != null);
-			o.addProperty("hud", !Compat.hudHidden(client));
+			try {
+				o.addProperty("hud", !Compat.hudHidden(client));
+			} catch (CommandException e) {
+				o.addProperty("hud", "unknown");
+			}
 		});
 		o.addProperty("lastOpen", lastScreenId);
 		o.addProperty("hotReload", Agent.describe());
@@ -347,7 +351,7 @@ final class Commands {
 		if (waitTicks > 0) {
 			context.waitTicks(waitTicks);
 		}
-		context.runOnClient(Compat::clearToasts);
+		context.runOnClient(client -> client.gui.toastManager().clear());
 
 		String fileName = out.getFileName().toString();
 		String name = fileName.endsWith(".png") ? fileName.substring(0, fileName.length() - 4) : fileName;

@@ -43,6 +43,11 @@ jobs:
           echo "client jar: $jar"
           javap -cp "$jar" net.minecraft.client.Minecraft net.minecraft.client.gui.Gui net.minecraft.client.Options \
             | grep -iE 'class |toast|overlay|hide|resize|language|reloadResource|screen' || true
+          echo "--- private boolean fields (HUD flag)"
+          javap -p -cp "$jar" net.minecraft.client.Minecraft net.minecraft.client.gui.Gui net.minecraft.client.Options \
+            | grep -E 'class |boolean [a-zA-Z]+;' || true
+          echo "--- GuiGraphicsExtractor"
+          javap -cp "$jar" net.minecraft.client.gui.GuiGraphicsExtractor | grep -vE 'lambda\$' || true
       - name: Milestones M1-M4 (headless)
         run: scripts/e2e.sh
       - name: Upload screenshots
