@@ -18,7 +18,7 @@ rootProject.name = 'block-scraper'
 include 'block-scraper-core', 'block-scraper-agent'
 
 // The Fabric projects need maven.fabricmc.net and Mojang's servers. Pass
-// -Pblock-scraper.coreOnly to skip them (e.g. in sandboxes without that access).
+// -Pblockscraper.coreOnly to skip them (e.g. in sandboxes without that access).
 if (!providers.gradleProperty('blockscraper.coreOnly').isPresent()) {
 	include 'block-scraper-mod'
 	include 'sample-ui'

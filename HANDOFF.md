@@ -17,6 +17,26 @@ Fabric side was compiled and debugged entirely through CI; core, agent and CLI w
 Shots take 200–600 ms. The spec's "done when" list: CI runs M1–M4 and uploads PNGs ✓; same commands give
 the same pixels ✓ (title screen); README + AGENTS.md ✓; inert without the flag ✓ by construction (see below).
 
+## Verified locally (2026-10-29, WSL2 + WSLg, Temurin 25 and JBR 25)
+
+First run on a real machine with a visible window, and the first time anyone looked at the PNGs. All of
+M1-M4 pass (`scripts/e2e.sh`); title, tooltip, de_de and inventory shots look right. Also driven for an hour
+against a real mod (Sylvan, tjhgibbs-git/tree-generator-fabric) through `:fabric:runBlockScraper`.
+
+Bugs found and fixed in that session:
+- The CLI passed `-Pblock-scraper.port/size/idleTick/javaHome` but Gradle reads `blockscraper.*`, so `--size`,
+  `--port`, `--idle-tick` and `--java-home` were silently ignored (the default port hid it). Same mismatch in
+  `-Pblockscraper.coreOnly` docs/CI.
+- `key ctrl+a` (any modifier) did nothing in widgets: Fabric's TestInput builds KeyEvents with modifiers = 0.
+  With a screen open, block-scraper now hands the screen a KeyEvent carrying SDL modifier bits. e2e covers it.
+- `reload` ran `gradle classes`, which skips Loom's split `client` source set, so client-side edits were never
+  swapped. It now runs `blockScraperClasses` (every non-test source set).
+- `shot --size` cropped instead of re-laying-out (TestScreenshotOptions.withSize only changes the render
+  target). It now resizes the window, shoots and restores.
+- JetBrains Runtime (`start --java-home <jbr>`): verified; adding/removing methods hot swaps in ~2 s.
+
+Added: `mouse down|up`, `drag`, `record` (GIF/MP4 via ffmpeg), `world --creative|--cheats`, `command`.
+
 ## Things learned about Minecraft 26.3 (all handled in the code)
 
 - Screens live on `Gui`: `client.gui.screen()/setScreen()/overlay()/toastManager()`; `resizeDisplay()` is `resizeGui()`.
@@ -31,14 +51,11 @@ the same pixels ✓ (title screen); README + AGENTS.md ✓; inert without the fl
 
 ## Not verified yet
 
-- **Nobody has looked at the PNGs.** The artifact host (blob.core.windows.net) was blocked from the first
-  sandbox, so only automated checks (non-blank, pixel diffs) ran. Download `block-scraper-shots` from the run page
-  and eyeball them, especially the tooltip, de_de and inventory shots.
 - Running with the enable flag unset: inert by construction (Fabric only calls gametest entrypoints with
-  `-Dfabric.client.gametest`; block-scraper also checks `-Dblock-scraper.enabled`), but there's no test for it.
-- JetBrains Runtime / `--java-home` (enhanced redefinition), macOS and Windows, a visible desktop window
-  (`--idle-tick`), and `open class:<fqcn>` / `options` / `chat` / `pause` screens.
-- `key` and `type` aren't exercised by e2e.
+  `-Dfabric.client.gametest`; block-scraper also checks `-Dblockscraper.enabled`), but there's no test for it.
+- macOS and Windows, `--idle-tick`, and the `options` / `pause` screens. (`open class:<fqcn>`, `chat`,
+  a visible WSLg window and JBR now work.)
+- `record` with no ffmpeg installed (it keeps the frames; covered by a CLI test only).
 - A cold-Gradle `reload` takes ~11 s; e2e warms Gradle first because the target is the steady-state loop.
 
 ## Possible next steps

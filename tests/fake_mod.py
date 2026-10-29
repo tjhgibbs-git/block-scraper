@@ -58,6 +58,10 @@ class FakeMod:
             os.makedirs(os.path.dirname(a["path"]), exist_ok=True)
             write_png(a["path"], w // 10, h // 10, (40 + self.clicks * 50, 80, 120, 255))
             return {"path": a["path"], "width": w // 10, "height": h // 10, "screen": self.screen, "millis": 5}
+        if cmd in ("hover", "mouse", "wait", "key", "type"):
+            return {"screen": self.screen}
+        if cmd == "command":
+            return a["text"]
         if cmd == "reload":
             return {"redefined": ["dev.blockscraper.sample.SampleConfigScreen"], "pending": [], "resources": a["resources"]}
         if cmd == "quit":
@@ -93,6 +97,6 @@ def serve(port):
 if __name__ == "__main__":
     port = 25599
     for arg in sys.argv[1:]:
-        if arg.startswith("-Pblock-scraper.port="):
+        if arg.startswith("-Pblockscraper.port="):
             port = int(arg.split("=", 1)[1])
     serve(port)

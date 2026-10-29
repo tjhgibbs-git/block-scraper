@@ -1,6 +1,8 @@
 """CLI tests against tests/fake_mod.py. Run: python3 -m unittest discover tests"""
 
 import json
+import struct
+import shutil
 import os
 import socket
 import subprocess
@@ -40,7 +42,7 @@ def wait_for(port):
 class AgainstFakeMod(unittest.TestCase):
     def setUp(self):
         self.port = free_port()
-        self.proc = subprocess.Popen([sys.executable, str(FAKE), f"-Pblock-scraper.port={self.port}"])
+        self.proc = subprocess.Popen([sys.executable, str(FAKE), f"-Pblockscraper.port={self.port}"])
         wait_for(self.port)
         self.tmp = Path(tempfile.mkdtemp())
 
@@ -88,6 +90,29 @@ class AgainstFakeMod(unittest.TestCase):
         changed = self.cli("diff", "a.png", "b.png")
         self.assertEqual(changed.returncode, 1)
         self.assertIn("images differ", changed.stderr)
+
+    def test_record_takes_a_frame_per_step_and_restores_size(self):
+        script = self.tmp / "steps.txt"
+        script.write_text("# demo\ndrag 10 10 50 10 --steps 4\nwait 8\nclick 1 1\n")
+        r = self.cli("--json", "record", "demo.gif", str(script), "--tick-step", "4", "--hold", "2", "--size", "854x480")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        result = json.loads(r.stdout)
+        # 1 initial + 7 drag messages (hover, down, 4 moves, up) + 2 waits + 1 click + 2 held.
+        frames = sorted((self.tmp / "demo.gif.frames").glob("*.png"))
+        self.assertEqual(result["frames"], 13)
+        self.assertEqual(len(frames), 13)
+        self.assertTrue(frames[0].read_bytes()[16:24] == struct.pack(">II", 85, 48), "frames use --size")
+        if shutil.which("ffmpeg"):
+            self.assertTrue((self.tmp / "demo.gif").stat().st_size > 0)
+        status = json.loads(self.cli("--json", "status").stdout)
+        self.assertEqual((status["width"], status["height"]), (1280, 720))
+
+    def test_record_rejects_shot_and_reload(self):
+        script = self.tmp / "steps.txt"
+        script.write_text("reload\n")
+        r = self.cli("record", "x.gif", str(script))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("can't be recorded", r.stderr)
 
     def test_widgets_table(self):
         r = self.cli("widgets")

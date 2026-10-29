@@ -8,6 +8,7 @@ prints the result once the game has finished acting on it.
     block-scraper open sample-config     open a registered screen
     block-scraper shot shots/a.png       save a PNG, print its absolute path
     block-scraper reload                 recompile, hot-swap changed classes, reopen the screen
+    block-scraper record demo.gif s.txt  run a script and record it as an animation
     block-scraper stop
 
 Run `block-scraper <command> -h` for details. Python 3.9+, standard library only.
@@ -233,12 +234,12 @@ def cmd_start(o):
     gradlew = project / ("gradlew.bat" if os.name == "nt" else "gradlew")
     if not gradlew.exists():
         raise BlockScraperError(f"no gradlew in {project}; pass --project-dir")
-    cmd = [str(gradlew), o.task, "--console=plain", f"-Pblock-scraper.port={o.port}", f"-Pblock-scraper.size={o.size}"]
+    cmd = [str(gradlew), o.task, "--console=plain", f"-Pblockscraper.port={o.port}", f"-Pblockscraper.size={o.size}"]
     if o.idle_tick:
-        cmd.append("-Pblock-scraper.idleTick=true")
+        cmd.append("-Pblockscraper.idleTick=true")
     java_home = o.java_home or os.environ.get("BLOCK_SCRAPER_JAVA_HOME")
     if java_home:
-        cmd.append(f"-Pblock-scraper.javaHome={java_home}")
+        cmd.append(f"-Pblockscraper.javaHome={java_home}")
 
     env = dict(os.environ)
     has_display = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
@@ -318,7 +319,7 @@ def cmd_reload(o):
     project = find_project(o.project_dir)
     timings = {}
     if not o.no_build:
-        build = o.build_cmd or os.environ.get("BLOCK_SCRAPER_BUILD_CMD") or f"{shlex.quote(str(project / 'gradlew'))} classes -q"
+        build = o.build_cmd or os.environ.get("BLOCK_SCRAPER_BUILD_CMD") or f"{shlex.quote(str(project / 'gradlew'))} blockScraperClasses -q"
         t = time.time()
         r = subprocess.run(build, shell=True, cwd=project, capture_output=True, text=True)
         timings["buildSeconds"] = round(time.time() - t, 2)
@@ -355,6 +356,110 @@ def cmd_run(o):
         sys.stdout.flush()
         results.append(result)
     return None
+
+
+def drag_steps(o):
+    """(cmd, args) messages for a drag: move, press, move in steps, release."""
+    n = max(1, o.steps)
+    yield "hover", {"x": o.x1, "y": o.y1}
+    yield "mouse", {"action": "down", "button": 0}
+    for i in range(1, n + 1):
+        yield "hover", {"x": o.x1 + (o.x2 - o.x1) * i / n, "y": o.y1 + (o.y2 - o.y1) * i / n}
+    yield "mouse", {"action": "up", "button": 0}
+
+
+def cmd_drag(o):
+    for cmd, args in drag_steps(o):
+        send(o.port, cmd, args, timeout=o.cmd_timeout)
+    return send(o.port, "status", {}, timeout=o.cmd_timeout).get("screen")
+
+
+def record_script(o, frame):
+    frame()
+    path = Path(o.script)
+    for n, line in enumerate(path.read_text().splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            sub = build_parser().parse_args(shlex.split(line))
+        except SystemExit:
+            raise BlockScraperError(f"{path}:{n}: bad command: {line}", EXIT_USAGE)
+        if sub.command in ("run", "record", "start", "stop", "restart", "reload"):
+            raise BlockScraperError(f"{path}:{n}: `{sub.command}` can't be recorded", EXIT_USAGE)
+        sub.port, sub.project_dir, sub.cmd_timeout = o.port, o.project_dir, o.cmd_timeout
+        try:
+            if sub.command == "drag":
+                for cmd, args in drag_steps(sub):
+                    send(o.port, cmd, args, timeout=o.cmd_timeout)
+                    frame()
+            elif sub.command == "wait":
+                left = sub.ticks
+                while left > 0:
+                    step = min(left, max(1, o.tick_step))
+                    send(o.port, "wait", {"ticks": step}, timeout=o.cmd_timeout)
+                    left -= step
+                    frame()
+            elif sub.command == "shot":
+                raise BlockScraperError("use frames, not `shot`, inside record", EXIT_USAGE)
+            else:
+                execute(sub)
+                frame()
+        except BlockScraperError as e:
+            raise BlockScraperError(f"{path}:{n}: {line}: {e}", e.code)
+        progress(o, f"recorded: {line}")
+
+
+def cmd_record(o):
+    """Runs a script like `run`, taking a frame after every step (each drag move and every --tick-step ticks of a
+    wait), then encodes the frames with ffmpeg. Frames are framebuffer shots, the same as `shot`."""
+    out = Path(o.out).resolve()
+    frames = out.parent / (out.name + ".frames")
+    if frames.exists():
+        shutil.rmtree(frames)
+    frames.mkdir(parents=True)
+    count = 0
+
+    def frame():
+        nonlocal count
+        send(o.port, "shot", {"path": str(frames / f"{count:04d}.png"), "wait": 0}, timeout=o.cmd_timeout)
+        count += 1
+
+    # Resize once for the whole recording (not per frame), so the screen lays out once and stays put.
+    previous = None
+    if o.size:
+        st = send(o.port, "status", {}, timeout=o.cmd_timeout)
+        previous = (st["width"], st["height"])
+        send(o.port, "size", {"width": o.size[0], "height": o.size[1]}, timeout=o.cmd_timeout)
+        send(o.port, "wait", {"ticks": 2}, timeout=o.cmd_timeout)
+    try:
+        record_script(o, frame)
+    finally:
+        if previous:
+            send(o.port, "size", {"width": previous[0], "height": previous[1]}, timeout=o.cmd_timeout)
+    last = frames / f"{count - 1:04d}.png"
+    for _ in range(max(0, o.hold)):
+        shutil.copyfile(last, frames / f"{count:04d}.png")
+        count += 1
+
+    result = {"frames": count, "framesDir": str(frames)}
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        result["note"] = "ffmpeg not found: frames kept, no animation encoded"
+        return result
+    src = ["-framerate", str(o.fps), "-i", str(frames / "%04d.png")]
+    if out.suffix.lower() == ".gif":
+        # Two-pass palette for clean UI colours; cap the width so GIFs stay small.
+        vf = "scale='min(960,iw)':-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=none"
+        cmd = [ffmpeg, "-y", "-loglevel", "error", *src, "-vf", vf, str(out)]
+    else:
+        cmd = [ffmpeg, "-y", "-loglevel", "error", *src, "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-pix_fmt", "yuv420p", str(out)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise BlockScraperError(f"ffmpeg failed: {r.stderr.strip()[-2000:]}")
+    result["path"] = str(out)
+    result["bytes"] = out.stat().st_size
+    return result
 
 
 def cmd_log(o):
@@ -434,6 +539,10 @@ def build_parser():
     s = add("world", "Create and join a throwaway singleplayer world (flat, seed 1, frozen time by default)")
     s.add_argument("--flat", action="store_true", help="the default; accepted for clarity")
     s.add_argument("--normal", action="store_true", help="vanilla default world settings instead")
+    s.add_argument("--creative", action="store_true", help="creative mode, commands allowed")
+    s.add_argument("--cheats", action="store_true", help="allow commands")
+    s = add("command", "Run a command on the integrated server with full permissions (in a world), e.g. 'time set noon'")
+    s.add_argument("text")
     add("leave", "Leave the world, back to the title screen")
     s = add("hud", "Show or hide the HUD (F1)")
     s.add_argument("state", choices=["on", "off"])
@@ -445,6 +554,20 @@ def build_parser():
     s.add_argument("y", type=float, nargs="?")
     s.add_argument("--text", help="click the centre of the visible widget with exactly this text")
     s.add_argument("--button", type=int, default=0, help="0 left, 1 right, 2 middle")
+    s = add("mouse", "Press or release a mouse button where the cursor is (hover while down to drag)")
+    s.add_argument("action", choices=["down", "up"])
+    s.add_argument("--button", type=int, default=0, help="0 left, 1 right, 2 middle")
+    s = add("drag", "Drag with the left button from (x1, y1) to (x2, y2) in GUI coordinates, e.g. a slider")
+    for name in ("x1", "y1", "x2", "y2"):
+        s.add_argument(name, type=float)
+    s.add_argument("--steps", type=int, default=8, help="intermediate cursor moves (default 8)")
+    s = add("record", "Run a script and record it as an animation (.gif or .mp4 via ffmpeg; frames kept otherwise)")
+    s.add_argument("out", help="output file: .gif, .mp4 or .webm; frames go to <out>.frames/")
+    s.add_argument("script", help="block-scraper commands, one per line (like `run`); a frame is taken after each step")
+    s.add_argument("--fps", type=float, default=8, help="playback speed (default 8 frames per second)")
+    s.add_argument("--tick-step", type=int, default=4, help="`wait N` records a frame every this many ticks (default 4)")
+    s.add_argument("--hold", type=int, default=6, help="repeat the last frame this many times (default 6)")
+    s.add_argument("--size", type=size_arg, metavar="WxH", help="render frames at this size")
     s = add("key", "Press a key: escape, enter, tab, a, f3, ctrl+a, shift+tab ...")
     s.add_argument("key")
     s = add("type", "Type text into the focused widget")
@@ -459,7 +582,7 @@ def build_parser():
     s = add("reload", "Rebuild, hot-swap changed classes, reopen the screen")
     s.add_argument("--resources", action="store_true", help="also reload resources (textures, lang, sprites)")
     s.add_argument("--no-build", action="store_true", help="skip the Gradle build")
-    s.add_argument("--build-cmd", help="build command (default: ./gradlew classes -q, or $BLOCK_SCRAPER_BUILD_CMD)")
+    s.add_argument("--build-cmd", help="build command (default: ./gradlew blockScraperClasses -q, or $BLOCK_SCRAPER_BUILD_CMD)")
     s.add_argument("--no-reopen", action="store_true")
     s = add("run", "Run a script: one block-scraper command per line, stop at the first error")
     s.add_argument("script")
@@ -491,7 +614,9 @@ def remote(o):
     if c == "lang":
         return "lang", {"code": o.code}
     if c == "world":
-        return "world", {"normal": o.normal}
+        return "world", {"normal": o.normal, "creative": o.creative, "cheats": o.cheats}
+    if c == "command":
+        return "command", {"text": o.text}
     if c == "hud":
         return "hud", {"on": o.state == "on"}
     if c == "hover":
@@ -502,6 +627,8 @@ def remote(o):
         if o.x is None or o.y is None:
             raise BlockScraperError("click needs X Y or --text", EXIT_USAGE)
         return "click", {"x": o.x, "y": o.y, "button": o.button}
+    if c == "mouse":
+        return "mouse", {"action": o.action, "button": o.button}
     if c == "key":
         return "key", {"key": o.key}
     if c == "type":
@@ -533,6 +660,10 @@ def execute(o):
         return cmd_run(o)
     if c == "log":
         return cmd_log(o)
+    if c == "drag":
+        return cmd_drag(o)
+    if c == "record":
+        return cmd_record(o)
     if c == "stats":
         s = png_stats(o.png)
         if o.min_stddev is not None and s["stddev"] < o.min_stddev:
