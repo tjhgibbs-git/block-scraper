@@ -1,4 +1,4 @@
-# Handoff: state of mcshot
+# Handoff: state of block-scraper
 
 **Status: all milestones pass headless on GitHub Actions** (run 8, commit 429286e, ubuntu-latest, Temurin 25,
 Xvfb + Mesa llvmpipe). The first session's sandbox could not reach maven.fabricmc.net or Mojang, so the
@@ -24,7 +24,7 @@ the same pixels ✓ (title screen); README + AGENTS.md ✓; inert without the fl
   `centeredText`, `text`.
 - Windowing is SDL3: **mouse buttons start at 1** (`InputConstants.MOUSE_BUTTON_LEFT`). Sending 0 is silently
   ignored by widgets while `Screen.mouseClicked` still returns true (it does whenever a child is under the cursor).
-- No public HUD-hidden flag; `hud on|off` presses F1 and mcshot tracks the state.
+- No public HUD-hidden flag; `hud on|off` presses F1 and block-scraper tracks the state.
 - The renderer is Vulkan-capable ("renderpearl"); under Xvfb it logs harmless swapchain warnings.
 - Fabric's gametest runner crashes the game if the session doesn't end on the title screen with no world,
   so `Commands.cleanUp` restores that before returning.
@@ -32,10 +32,10 @@ the same pixels ✓ (title screen); README + AGENTS.md ✓; inert without the fl
 ## Not verified yet
 
 - **Nobody has looked at the PNGs.** The artifact host (blob.core.windows.net) was blocked from the first
-  sandbox, so only automated checks (non-blank, pixel diffs) ran. Download `mcshot-shots` from the run page
+  sandbox, so only automated checks (non-blank, pixel diffs) ran. Download `block-scraper-shots` from the run page
   and eyeball them, especially the tooltip, de_de and inventory shots.
 - Running with the enable flag unset: inert by construction (Fabric only calls gametest entrypoints with
-  `-Dfabric.client.gametest`; mcshot also checks `-Dmcshot.enabled`), but there's no test for it.
+  `-Dfabric.client.gametest`; block-scraper also checks `-Dblock-scraper.enabled`), but there's no test for it.
 - JetBrains Runtime / `--java-home` (enhanced redefinition), macOS and Windows, a visible desktop window
   (`--idle-tick`), and `open class:<fqcn>` / `options` / `chat` / `pause` screens.
 - `key` and `type` aren't exercised by e2e.
@@ -44,8 +44,8 @@ the same pixels ✓ (title screen); README + AGENTS.md ✓; inert without the fl
 ## Possible next steps
 
 - Wrap the CLI as an MCP server (the protocol is already JSON-lines).
-- Publish `mcshot-mod`/`mcshot-agent` (or a Gradle plugin) so other mod repos can depend on it instead of
-  copying `gradle/mcshot.gradle`.
+- Publish `block-scraper-mod`/`block-scraper-agent` (or a Gradle plugin) so other mod repos can depend on it instead of
+  copying `gradle/block-scraper.gradle`.
 - e2e coverage for `key`/`type`, `class:`, and the flag-unset check.
 - CI cleanup: remove the javap probe steps once nobody needs them; bump actions off Node 20.
 
@@ -53,10 +53,10 @@ the same pixels ✓ (title screen); README + AGENTS.md ✓; inert without the fl
 
 - **Built on Fabric's client gametest API** rather than our own mixins: it's maintained per MC version, pauses the
   game for determinism, and already does screenshots, input, resizing and worlds. Cost: the session must be a
-  gametest, so `runMcshot` sets `-Dfabric.client.gametest` with a modid filter so other mods' gametests don't run.
+  gametest, so `runBlockScraper` sets `-Dfabric.client.gametest` with a modid filter so other mods' gametests don't run.
 - **Hot reload via a `-javaagent`**, not JDWP: no debugger port, works on any JDK, and the agent can diff class
   files itself. JBR is optional for schema changes.
 - **CLI in Python** (stdlib): no build step, starts in ~50 ms, and can decode PNGs for blank/diff checks.
 - **Spec deviations:** added `screens`, `leave`, `wait`, `restart`, `log`, `stats`, `diff`, `click --text`;
   `world` defaults to flat (`--normal` for vanilla); screen factories get a `ScreenArgs` (parent + `--arg` map)
-  and can also be registered through a `"mcshot"` entrypoint so nothing loads outside mcshot runs.
+  and can also be registered through a `"block-scraper"` entrypoint so nothing loads outside block-scraper runs.

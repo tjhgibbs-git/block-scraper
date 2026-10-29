@@ -3,7 +3,7 @@ plugins {
 }
 
 base {
-	archivesName = 'mcshot-sample-ui'
+	archivesName = 'block-scraper-sample-ui'
 }
 
 dependencies {
@@ -11,22 +11,22 @@ dependencies {
 	implementation "net.fabricmc:fabric-loader:${loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
 
-	// Dev-only: your shipped jar never contains mcshot. The "mcshot" entrypoint is only loaded when mcshot runs.
-	implementation project(':mcshot-mod')
+	// Dev-only: your shipped jar never contains block-scraper. The "block-scraper" entrypoint is only loaded when block-scraper runs.
+	implementation project(':block-scraper-mod')
 }
 
 loom {
 	mods {
-		'mcshot-sample-ui' {
+		'block-scraper-sample-ui' {
 			sourceSet sourceSets.main
 		}
-		mcshot {
-			sourceSet 'main', ':mcshot-mod'
+		'block-scraper' {
+			sourceSet 'main', ':block-scraper-mod'
 		}
 	}
 }
 
-apply from: rootProject.file('gradle/mcshot.gradle')
+apply from: rootProject.file('gradle/block-scraper.gradle')
 
 processResources {
 	def version = project.version

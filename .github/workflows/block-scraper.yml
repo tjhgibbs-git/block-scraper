@@ -1,0 +1,81 @@
+name: block-scraper
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Java tests (core + agent)
+        run: ./gradlew -Pblock-scraper.coreOnly test
+      - name: CLI tests
+        run: python3 -m unittest discover -s tests -v
+
+  e2e:
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Headless deps
+        run: scripts/setup-headless.sh
+      - name: Build
+        run: ./gradlew build
+      - name: Dump Minecraft API on failure (for fixing renamed calls)
+        if: failure()
+        run: |
+          jar=$(find ~/.gradle/caches .gradle -name '*.jar' -path '*minecraft*' 2>/dev/null | while read -r j; do
+            unzip -l "$j" 2>/dev/null | grep -q 'net/minecraft/client/Minecraft.class' && echo "$j" && break; done)
+          echo "client jar: $jar"
+          javap -cp "$jar" net.minecraft.client.Minecraft net.minecraft.client.gui.Gui net.minecraft.client.Options \
+            | grep -iE 'class |toast|overlay|hide|resize|language|reloadResource|screen' || true
+          echo "--- private boolean fields (HUD flag)"
+          javap -p -cp "$jar" net.minecraft.client.Minecraft net.minecraft.client.gui.Gui net.minecraft.client.Options \
+            | grep -E 'class |boolean [a-zA-Z]+;' || true
+          echo "--- GuiGraphicsExtractor"
+          javap -cp "$jar" net.minecraft.client.gui.GuiGraphicsExtractor | grep -vE 'lambda\$' || true
+      - name: Milestones M1-M4 (headless)
+        run: scripts/e2e.sh
+      - name: Client log and API probe on failure
+        if: failure()
+        run: |
+          echo "--- .block-scraper/client.log (tail)"; tail -n 120 .block-scraper/client.log || true
+          jar=~/.gradle/caches/fabric-loom/26.3/minecraft-merged.jar
+          javap -cp "$jar" net.minecraft.client.input.MouseButtonEvent net.minecraft.client.gui.components.events.GuiEventListener \
+            net.minecraft.client.gui.GuiGraphicsExtractor | grep -vE 'lambda\$' || true
+          echo "--- private boolean fields (HUD flag)"
+          javap -p -cp "$jar" net.minecraft.client.Minecraft net.minecraft.client.gui.Gui net.minecraft.client.Options \
+            | grep -E 'class |boolean [a-zA-Z]+;' || true
+          echo "--- widget click path"
+          for c in net.minecraft.client.gui.screens.Screen net.minecraft.client.gui.components.AbstractWidget \
+                   net.minecraft.client.gui.components.AbstractButton net.minecraft.client.gui.components.Button \
+                   net.minecraft.client.gui.components.events.ContainerEventHandler; do
+            javap -c -p -cp "$jar" "$c" | awk '/(mouseClicked|mouseReleased|onClick|onRelease|onPress|afterMouseAction)\(/{p=1} p&&/^$/{p=0} p' \
+              | grep -E '^  [a-z]|invoke|getfield|putfield|if|return' | head -80 || true
+          done
+          echo "--- MouseHandler.onButton"
+          javap -c -p -cp "$jar" net.minecraft.client.MouseHandler | sed -n '/void onButton(/,/^$/p' | grep -E 'invoke|getfield|if' | head -60 || true
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: block-scraper-shots
+          path: |
+            shots/
+            .block-scraper/client.log
+            examples/sample-ui/run/block-scraper/logs/
+          if-no-files-found: warn

@@ -1,0 +1,7 @@
+{
+	"block-scraper-sample-ui.config.title": "Beispiel-Einstellungen",
+	"block-scraper-sample-ui.config.name": "Name",
+	"block-scraper-sample-ui.config.sparkles": "Funkeln",
+	"block-scraper-sample-ui.config.sparkles.tooltip": "Fügt Funkeln hinzu. Rein kosmetisch.",
+	"block-scraper-sample-ui.config.clicks": "%s-mal geklickt"
+}

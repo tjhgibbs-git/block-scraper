@@ -1,13 +1,13 @@
 {
 	"schemaVersion": 1,
-	"id": "mcshot-sample-ui",
+	"id": "block-scraper-sample-ui",
 	"version": "${version}",
-	"name": "mcshot sample UI",
-	"description": "A small config screen used by mcshot's tests and as a template.",
+	"name": "Block Scraper sample UI",
+	"description": "A small config screen used by block-scraper's tests and as a template.",
 	"environment": "client",
 	"entrypoints": {
-		"mcshot": [
-			"dev.mcshot.sample.SampleScreens"
+		"block-scraper": [
+			"dev.blockscraper.sample.SampleScreens"
 		]
 	},
 	"depends": {

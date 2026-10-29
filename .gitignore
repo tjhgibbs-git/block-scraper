@@ -5,6 +5,6 @@ out/
 .idea/
 *.iml
 .vscode/
-.mcshot/
+.block-scraper/
 __pycache__/
 shots/

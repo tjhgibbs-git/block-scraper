@@ -1,0 +1,44 @@
+// Adds a `runBlockScraper` task to a Loom project: a dev client with the block-scraper session enabled and the hot-swap agent
+// attached. Apply it after the Loom plugin:  apply from: rootProject.file('gradle/block-scraper.gradle')
+//
+// Optional -P properties (the block-scraper CLI passes these through):
+//   blockscraper.port      socket port (default 25599)
+//   blockscraper.size      initial window size (default 1280x720)
+//   blockscraper.idleTick  tick while idle so a visible window stays responsive (default false)
+//   blockscraper.javaHome  JDK to run the client with, e.g. JetBrains Runtime; enables enhanced class redefinition
+
+evaluationDependsOn(':block-scraper-agent')
+
+def agentJar = project(':block-scraper-agent').tasks.named('jar').get().archiveFile.get().asFile
+def prop = { String name, String fallback -> (findProperty(name) ?: fallback).toString() }
+def javaHome = findProperty('blockscraper.javaHome')
+
+loom {
+	runs {
+		blockScraper {
+			client()
+			configName = 'block-scraper'
+			runDir 'run/block-scraper'
+			ideConfigGenerated false
+			// Fabric runs the "fabric-client-gametest" entrypoints; the modid filter keeps other mods' tests out.
+			property 'fabric.client.gametest'
+			property 'fabric.client.gametest.modid', 'block-scraper'
+			property 'blockscraper.enabled', 'true'
+			property 'blockscraper.port', prop('blockscraper.port', '25599')
+			property 'blockscraper.size', prop('blockscraper.size', '1280x720')
+			property 'blockscraper.idleTick', prop('blockscraper.idleTick', 'false')
+			vmArg "-javaagent:${agentJar}"
+			if (javaHome != null) {
+				vmArg '-XX:+AllowEnhancedClassRedefinition'
+			}
+			programArgs '--username', 'block-scraper'
+		}
+	}
+}
+
+tasks.matching { it.name == 'runBlockScraper' }.configureEach {
+	dependsOn ':block-scraper-agent:jar'
+	if (javaHome != null) {
+		executable = "${javaHome}/bin/java"
+	}
+}

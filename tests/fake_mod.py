@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A stand-in for the mcshot mod: speaks the same protocol with canned behaviour, for CLI tests."""
+"""A stand-in for the block-scraper mod: speaks the same protocol with canned behaviour, for CLI tests."""
 
 import json
 import os
@@ -38,7 +38,7 @@ class FakeMod:
         if cmd == "open":
             if a["id"] != "sample-config":
                 raise ValueError(f"unknown screen '{a['id']}'")
-            self.screen, self.last = "dev.mcshot.sample.SampleConfigScreen", a
+            self.screen, self.last = "dev.blockscraper.sample.SampleConfigScreen", a
             return {"screen": self.screen, "args": a.get("args", {})}
         if cmd == "size":
             self.size = (a["width"], a["height"])
@@ -59,7 +59,7 @@ class FakeMod:
             write_png(a["path"], w // 10, h // 10, (40 + self.clicks * 50, 80, 120, 255))
             return {"path": a["path"], "width": w // 10, "height": h // 10, "screen": self.screen, "millis": 5}
         if cmd == "reload":
-            return {"redefined": ["dev.mcshot.sample.SampleConfigScreen"], "pending": [], "resources": a["resources"]}
+            return {"redefined": ["dev.blockscraper.sample.SampleConfigScreen"], "pending": [], "resources": a["resources"]}
         if cmd == "quit":
             self.quit = True
             return "bye"
@@ -93,6 +93,6 @@ def serve(port):
 if __name__ == "__main__":
     port = 25599
     for arg in sys.argv[1:]:
-        if arg.startswith("-Pmcshot.port="):
+        if arg.startswith("-Pblock-scraper.port="):
             port = int(arg.split("=", 1)[1])
     serve(port)

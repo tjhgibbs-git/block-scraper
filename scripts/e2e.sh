@@ -5,8 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 OUT="${OUT:-shots}"
-SCREEN_SRC=examples/sample-ui/src/main/java/dev/mcshot/sample/SampleConfigScreen.java
-M=./mcshot
+SCREEN_SRC=examples/sample-ui/src/main/java/dev/blockscraper/sample/SampleConfigScreen.java
+M=./block-scraper
 mkdir -p "$OUT"
 rm -f "$OUT"/*.png
 

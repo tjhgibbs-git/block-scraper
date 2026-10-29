@@ -1,11 +1,11 @@
-# mcshot
+# Block Scraper
 
 Screenshot-driven UI iteration for Fabric mods. One Minecraft dev client stays running; a CLI opens any screen,
 sets window size, GUI scale and language, clicks and types, and saves PNGs. An agent (or you) can edit code,
 hot-reload it and look at the result without restarting the game.
 
 ```
-edit code → ./mcshot reload → ./mcshot shot shots/x.png → look at the PNG → repeat
+edit code → ./block-scraper reload → ./block-scraper shot shots/x.png → look at the PNG → repeat
 ```
 
 Stack: Minecraft 26.3, Fabric Loader 0.20.1, Fabric API 0.165.0+26.3, Loom 1.19, Java 25 (see `gradle.properties`).
@@ -14,24 +14,24 @@ Stack: Minecraft 26.3, Fabric Loader 0.20.1, Fabric API 0.165.0+26.3, Loom 1.19,
 
 ```sh
 scripts/setup-headless.sh          # once, on a Linux box with no display (Debian/Ubuntu)
-./mcshot start                     # launches the client; the first run downloads Minecraft (minutes)
-./mcshot open sample-config --arg name=Steve
-./mcshot shot shots/config.png     # prints: /abs/path/shots/config.png 1280x720 (180 ms)
-./mcshot widgets                   # what's on screen, with GUI coordinates
-./mcshot click --text "Clicked 0 times"
-./mcshot shot shots/config-clicked.png
+./block-scraper start                     # launches the client; the first run downloads Minecraft (minutes)
+./block-scraper open sample-config --arg name=Steve
+./block-scraper shot shots/config.png     # prints: /abs/path/shots/config.png 1280x720 (180 ms)
+./block-scraper widgets                   # what's on screen, with GUI coordinates
+./block-scraper click --text "Clicked 0 times"
+./block-scraper shot shots/config-clicked.png
 # edit examples/sample-ui/.../SampleConfigScreen.java, then:
-./mcshot reload                    # gradle classes + hot swap + reopen
-./mcshot shot shots/config-v2.png
-./mcshot stop
+./block-scraper reload                    # gradle classes + hot swap + reopen
+./block-scraper shot shots/config-v2.png
+./block-scraper stop
 ```
 
-`./mcshot -h` lists every command; `./mcshot <command> -h` explains one. Add `--json` for machine-readable output.
+`./block-scraper -h` lists every command; `./block-scraper <command> -h` explains one. Add `--json` for machine-readable output.
 Exit codes: 0 ok, 1 command failed, 2 bad usage, 3 no client running.
 
 | Command | What it does |
 |---|---|
-| `start` / `stop` / `restart` | Launch the dev client (`runMcshot`, wrapped in `xvfb-run` when there's no display) and wait until it answers. `.mcshot/client.json` stops a second client. Log: `.mcshot/client.log` (`mcshot log`). |
+| `start` / `stop` / `restart` | Launch the dev client (`runBlockScraper`, wrapped in `xvfb-run` when there's no display) and wait until it answers. `.block-scraper/client.json` stops a second client. Log: `.block-scraper/client.log` (`block-scraper log`). |
 | `status` | Minecraft version, current screen, window and GUI size, GUI scale, language, world, hot reload mode |
 | `screens` / `open <id> [--arg k=v]` | List / open registered screens. `class:<fqcn>` opens any screen class by reflection. |
 | `close` / `reopen` | Close the screen / build it again with the same args (picks up code changes) |
@@ -50,26 +50,26 @@ Exit codes: 0 ok, 1 command failed, 2 bad usage, 3 no client running.
 ## How it works
 
 ```
-CLI ──JSON lines over 127.0.0.1:25599──▶ mcshot mod (in the client) ──▶ PNG on disk
+CLI ──JSON lines over 127.0.0.1:25599──▶ block-scraper mod (in the client) ──▶ PNG on disk
 ```
 
-- **`mcshot-mod`** runs the whole session as one Fabric *client gametest*. Fabric's gametest framework keeps the
+- **`block-scraper-mod`** runs the whole session as one Fabric *client gametest*. Fabric's gametest framework keeps the
   game paused between commands and provides deterministic screenshots, simulated input, window resizing and
   throwaway worlds, and Fabric maintains it for each Minecraft version. Every command finishes before the reply is sent.
-- **`mcshot-core`** (plain Java): the socket server and request queue.
-- **`mcshot-agent`** (plain Java): a `-javaagent` that hashes class files at startup and, on `reload`, redefines every
+- **`block-scraper-core`** (plain Java): the socket server and request queue.
+- **`block-scraper-agent`** (plain Java): a `-javaagent` that hashes class files at startup and, on `reload`, redefines every
   loaded class whose file changed (`Instrumentation.redefineClasses`). Classes that aren't loaded yet just load fresh.
   Stock HotSpot swaps method bodies only. Adding or removing methods or fields gives a clear `restart required` error;
-  run the client on [JetBrains Runtime](https://github.com/JetBrains/JetBrainsRuntime) with `mcshot start --java-home <jbr>`
+  run the client on [JetBrains Runtime](https://github.com/JetBrains/JetBrainsRuntime) with `block-scraper start --java-home <jbr>`
   (adds `-XX:+AllowEnhancedClassRedefinition`) to allow those too. Mixin classes and mixin targets always need a restart.
-- **`mcshot`** (Python 3, stdlib only): the CLI.
+- **`block-scraper`** (Python 3, stdlib only): the CLI.
 - **`examples/sample-ui`**: a small config screen (text field, toggle with tooltip, counter button) used by the
   tests and as a template.
 
-**Safety:** mcshot does nothing unless the JVM has both `-Dfabric.client.gametest` (Fabric only runs gametests then)
-and `-Dmcshot.enabled=true`. Only the `runMcshot` task sets them. It only listens on loopback.
+**Safety:** block-scraper does nothing unless the JVM has both `-Dfabric.client.gametest` (Fabric only runs gametests then)
+and `-Dblock-scraper.enabled=true`. Only the `runBlockScraper` task sets them. It only listens on loopback.
 
-**Determinism:** the game only advances when a command asks it to; shots render with a fixed frame delta. mcshot
+**Determinism:** the game only advances when a command asks it to; shots render with a fixed frame delta. block-scraper
 also turns off pause-on-lost-focus, the narrator, splash texts, Realms notifications and toasts, and the gametest
 API turns off tutorials, clouds, onboarding and music. Animated things (the title panorama, blinking cursors) can
 still differ by a few pixels.
@@ -80,32 +80,32 @@ are slow and may come out black.
 
 ## Using it in your own mod
 
-For now mcshot lives in this repo; copy your mod in as a subproject next to `examples/sample-ui` (or publish
-`mcshot-mod` to mavenLocal). Then:
+For now block-scraper lives in this repo; copy your mod in as a subproject next to `examples/sample-ui` (or publish
+`block-scraper-mod` to mavenLocal). Then:
 
-1. Depend on it in dev only: `implementation project(':mcshot-mod')` (never `include` it in your jar).
-2. Register screens with the `mcshot` entrypoint, which is only loaded when mcshot runs:
+1. Depend on it in dev only: `implementation project(':block-scraper-mod')` (never `include` it in your jar).
+2. Register screens with the `block-scraper` entrypoint, which is only loaded when block-scraper runs:
    ```json
-   "entrypoints": { "mcshot": ["com.example.MyMcShotScreens"] }
+   "entrypoints": { "block-scraper": ["com.example.MyBlockScraperScreens"] }
    ```
    ```java
-   public final class MyMcShotScreens implements McShotPlugin {
+   public final class MyBlockScraperScreens implements BlockScraperPlugin {
        public void registerScreens() {
-           McShot.register("my-config", args -> new MyConfigScreen(args.parent()));
+           BlockScraper.register("my-config", args -> new MyConfigScreen(args.parent()));
        }
    }
    ```
-3. Add `apply from: rootProject.file('gradle/mcshot.gradle')` to your build to get the `runMcshot` task, and list
+3. Add `apply from: rootProject.file('gradle/block-scraper.gradle')` to your build to get the `runBlockScraper` task, and list
    both mods under `loom { mods { … } }` like `examples/sample-ui/build.gradle` does.
 
 ## Development
 
 ```sh
-./gradlew -Pmcshot.coreOnly test            # core + agent tests; no Minecraft needed
+./gradlew -Pblock-scraper.coreOnly test            # core + agent tests; no Minecraft needed
 python3 -m unittest discover -s tests       # CLI tests against a fake mod
 scripts/e2e.sh                              # milestones M1–M4 against the real client (what CI runs)
 ```
 
-CI (`.github/workflows/mcshot.yml`) runs all three on ubuntu-latest and uploads the PNGs as artifacts.
+CI (`.github/workflows/block-scraper.yml`) runs all three on ubuntu-latest and uploads the PNGs as artifacts.
 
 See [AGENTS.md](AGENTS.md) for the loop written for coding agents, and [HANDOFF.md](HANDOFF.md) for what's verified, what isn't, and what changed in Minecraft 26.3.

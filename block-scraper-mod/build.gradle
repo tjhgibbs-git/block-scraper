@@ -1,0 +1,35 @@
+plugins {
+	id 'net.fabricmc.fabric-loom'
+}
+
+base {
+	archivesName = 'block-scraper'
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${loader_version}"
+	// Needs fabric-client-gametest-api-v1 (session + input) and fabric-screen-api-v1 (widget listing).
+	implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+
+	implementation project(':block-scraper-core')
+	include project(':block-scraper-core')
+}
+
+processResources {
+	def version = project.version
+	inputs.property 'version', version
+	filesMatching('fabric.mod.json') {
+		expand 'version': version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.release = mod_java_version as int
+	options.encoding = 'UTF-8'
+}
+
+java {
+	sourceCompatibility = JavaVersion.toVersion(mod_java_version)
+	targetCompatibility = JavaVersion.toVersion(mod_java_version)
+}

@@ -1,7 +1,0 @@
-{
-	"mcshot-sample-ui.config.title": "Beispiel-Einstellungen",
-	"mcshot-sample-ui.config.name": "Name",
-	"mcshot-sample-ui.config.sparkles": "Funkeln",
-	"mcshot-sample-ui.config.sparkles.tooltip": "Fügt Funkeln hinzu. Rein kosmetisch.",
-	"mcshot-sample-ui.config.clicks": "%s-mal geklickt"
-}

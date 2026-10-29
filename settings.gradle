@@ -12,15 +12,15 @@ pluginManagement {
 	}
 }
 
-rootProject.name = 'mcshot'
+rootProject.name = 'block-scraper'
 
 // Plain-Java modules: no Minecraft needed to build or test these.
-include 'mcshot-core', 'mcshot-agent'
+include 'block-scraper-core', 'block-scraper-agent'
 
 // The Fabric projects need maven.fabricmc.net and Mojang's servers. Pass
-// -Pmcshot.coreOnly to skip them (e.g. in sandboxes without that access).
-if (!providers.gradleProperty('mcshot.coreOnly').isPresent()) {
-	include 'mcshot-mod'
+// -Pblock-scraper.coreOnly to skip them (e.g. in sandboxes without that access).
+if (!providers.gradleProperty('blockscraper.coreOnly').isPresent()) {
+	include 'block-scraper-mod'
 	include 'sample-ui'
 	project(':sample-ui').projectDir = file('examples/sample-ui')
 }
