@@ -42,11 +42,14 @@ Reuse the running client across edits; don't `stop`/`start` between iterations. 
 | `widgets` | Every widget: class, x/y/w/h (GUI coords), text, active/visible/focused/hovered, EditBox value |
 | `click --text "Label"` / `click <x> <y> [--button 0\|1\|2]` | Prefer `--text` (exact visible text) over coordinates |
 | `hover <x> <y>` | Move the cursor (tooltips). `hover 0 0` to move away |
+| `drag <x1> <y1> <x2> <y2> [--steps N]` / `mouse down\|up` | Drag sliders etc.; `mouse` holds/releases at the cursor |
 | `key <name>` / `type <text>` | `escape`, `enter`, `tab`, `shift+tab`, `ctrl+a`, `f3`, letters…; `type` goes to the focused widget |
 | `wait <ticks>` | Advance the game (animations, delayed state) |
-| `shot <out.png> [--size WxH] [--wait-frames N]` | Render and save; `--size` applies to this shot only |
+| `shot <out.png> [--size WxH] [--wait-frames N]` | Render and save; `--size` resizes for this shot only (layout included) |
+| `record <out.gif> <script> [--size WxH] [--fps N]` | Animated demo of a script (e.g. a slider drag); look at a few frames in `<out>.frames/` to check it |
 | `size <w>x<h>` / `scale <n>` / `lang <code>` | Window size, GUI scale (0 = auto), language (e.g. `de_de`) |
-| `world [--flat\|--normal]` / `leave` / `hud on\|off` | Throwaway singleplayer world (flat, seed 1, frozen time), F1 |
+| `world [--flat\|--normal] [--creative]` / `leave` / `hud on\|off` | Throwaway singleplayer world (flat, seed 1, frozen time), F1 |
+| `command <text>` | Server command with full permissions, e.g. `command 'tp @a 0 -60 0 facing 0 -60 10'` |
 | `reload [--resources] [--no-build] [--no-reopen]` | Rebuild + hot swap; `--resources` for textures/lang/sprites |
 | `run steps.txt` | One command per line, `#` comments, stops at the first error |
 | `log` | Tail of the client log: stack traces, crashes |

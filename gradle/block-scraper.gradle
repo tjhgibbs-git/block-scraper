@@ -42,3 +42,11 @@ tasks.matching { it.name == 'runBlockScraper' }.configureEach {
 		executable = "${javaHome}/bin/java"
 	}
 }
+
+// `block-scraper reload` builds with this: `classes` alone skips other source sets, such as Loom's
+// split `client` source set, so their edits would never be hot swapped.
+tasks.register('blockScraperClasses') {
+	group = 'block-scraper'
+	description = 'Compiles every non-test source set so block-scraper reload sees all changed classes.'
+	dependsOn sourceSets.matching { !it.name.toLowerCase().contains('test') }.collect { it.classesTaskName }
+}

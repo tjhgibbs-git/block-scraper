@@ -36,14 +36,17 @@ Exit codes: 0 ok, 1 command failed, 2 bad usage, 3 no client running.
 | `screens` / `open <id> [--arg k=v]` | List / open registered screens. `class:<fqcn>` opens any screen class by reflection. |
 | `close` / `reopen` | Close the screen / build it again with the same args (picks up code changes) |
 | `size <w>x<h>` / `scale <n>` / `lang <code>` | Window size, GUI scale (0 = auto), language (reloads resources) |
-| `world [--flat\|--normal]` / `leave` | Throwaway singleplayer world (flat, seed 1, frozen time and weather by default) |
+| `world [--flat\|--normal] [--creative\|--cheats]` / `leave` | Throwaway singleplayer world (flat, seed 1, frozen time and weather by default); `--creative` also allows commands |
+| `command <text>` | Run a command on the integrated server with full permissions (`'tp @a 0 -60 0'`) |
 | `hud on\|off` | F1 |
 | `hover <x> <y>` / `click <x> <y> [--button 0\|1\|2]` / `click --text T` | Mouse, in GUI coordinates (the ones `widgets` prints); buttons are left/right/middle |
+| `mouse down\|up` / `drag <x1> <y1> <x2> <y2> [--steps 8]` | Hold/release a button; drag (sliders, drag-to-rotate) |
 | `key <name>` / `type <text>` | `escape`, `enter`, `tab`, `a`, `f3`, `ctrl+a`, `shift+tab` …; type into the focused widget |
 | `wait <ticks>` | Advance the game |
-| `shot <out.png> [--wait-frames 2] [--size WxH]` | Render and save; prints absolute path and size |
+| `shot <out.png> [--wait-frames 2] [--size WxH]` | Render and save; prints absolute path and size. `--size` resizes the window for this shot (the GUI re-lays out) and restores it |
+| `record <out.gif\|.mp4> <script> [--fps 8] [--size WxH]` | Run a script and record it: a frame after every step, every drag move and every `--tick-step` ticks of a `wait`; encoded with ffmpeg (frames kept in `<out>.frames/` either way) |
 | `widgets` | Class, x/y/w/h, text, active/visible/focused/hovered, EditBox value |
-| `reload [--resources]` | `./gradlew classes`, redefine changed classes, optionally reload resources, reopen |
+| `reload [--resources]` | `./gradlew blockScraperClasses` (every non-test source set, incl. Loom's `client`), redefine changed classes, optionally reload resources, reopen |
 | `run <script>` | One command per line, `#` comments; stops at the first error |
 | `stats <png> [--min-stddev N]` / `diff <a> <b>` | Local PNG checks: blank detection, pixel comparison |
 
@@ -67,7 +70,11 @@ CLI ──JSON lines over 127.0.0.1:25599──▶ block-scraper mod (in the cli
   tests and as a template.
 
 **Safety:** block-scraper does nothing unless the JVM has both `-Dfabric.client.gametest` (Fabric only runs gametests then)
-and `-Dblock-scraper.enabled=true`. Only the `runBlockScraper` task sets them. It only listens on loopback.
+and `-Dblockscraper.enabled=true`. Only the `runBlockScraper` task sets them. It only listens on loopback.
+
+**Privacy:** `shot` reads Minecraft's own framebuffer (Fabric's `takeScreenshot` renders a frame and reads it
+back). It never captures the screen or desktop, so other windows, notifications and anything behind or over the
+game window can't appear in a PNG. Keep it that way: don't add OS-level screen capture.
 
 **Determinism:** the game only advances when a command asks it to; shots render with a fixed frame delta. block-scraper
 also turns off pause-on-lost-focus, the narrator, splash texts, Realms notifications and toasts, and the gametest
@@ -101,7 +108,7 @@ For now block-scraper lives in this repo; copy your mod in as a subproject next 
 ## Development
 
 ```sh
-./gradlew -Pblock-scraper.coreOnly test            # core + agent tests; no Minecraft needed
+./gradlew -Pblockscraper.coreOnly test            # core + agent tests; no Minecraft needed
 python3 -m unittest discover -s tests       # CLI tests against a fake mod
 scripts/e2e.sh                              # milestones M1–M4 against the real client (what CI runs)
 ```

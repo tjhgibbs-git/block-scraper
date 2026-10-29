@@ -3,7 +3,7 @@
 	"id": "block-scraper",
 	"version": "${version}",
 	"name": "Block Scraper",
-	"description": "Dev-only: drive a running client over a local socket to open screens and take screenshots. Inert unless -Dblock-scraper.enabled=true.",
+	"description": "Dev-only: drive a running client over a local socket to open screens and take screenshots. Inert unless -Dblockscraper.enabled=true.",
 	"environment": "client",
 	"entrypoints": {
 		"fabric-client-gametest": [

@@ -48,6 +48,13 @@ $M hover "$HX" "$HY"
 $M shot "$OUT/m2-tooltip.png"
 expect_differs "$OUT/m2-sample-clicked.png" "$OUT/m2-tooltip.png" || soft_fail "tooltip did not show"
 $M hover 0 0
+# Keyboard: focus the name box, select all with a modifier, type over it.
+read -r EX EY < <(python3 -c 'import json,sys; w=json.load(open(sys.argv[1]))["widgets"][0]; print(w["x"]+w["w"]//2, w["y"]+w["h"]//2)' "$OUT/m2-widgets.json")
+$M click "$EX" "$EY"
+$M key ctrl+a
+$M type Alex
+$M widgets | grep -q "value='Alex'" || soft_fail "ctrl+a then type did not replace the EditBox value"
+$M key tab
 $M scale 2
 $M shot "$OUT/m2-scale2.png"
 $M scale 0
@@ -58,7 +65,7 @@ $M lang en_us
 $M close
 
 step "M3: hot reload"
-./gradlew classes -q  # warm the Gradle daemon: the target is the steady-state edit loop, not a cold build
+./gradlew blockScraperClasses -q  # warm the Gradle daemon: the target is the steady-state edit loop, not a cold build
 $M open sample-config
 $M shot "$OUT/m3-before.png"
 sed -i 's/0xFF3FA9F5/0xFFF5A93F/' "$SCREEN_SRC"

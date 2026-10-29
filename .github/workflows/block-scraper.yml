@@ -16,7 +16,7 @@ jobs:
           java-version: 25
       - uses: gradle/actions/setup-gradle@v4
       - name: Java tests (core + agent)
-        run: ./gradlew -Pblock-scraper.coreOnly test
+        run: ./gradlew -Pblockscraper.coreOnly test
       - name: CLI tests
         run: python3 -m unittest discover -s tests -v
 

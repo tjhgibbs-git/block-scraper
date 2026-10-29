@@ -26,6 +26,10 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.gui.screens.worldselection.WorldCreationUiState;
+import net.minecraft.client.input.KeyEvent;
+
+import org.lwjgl.sdl.SDLKeyboard;
 
 import net.fabricmc.fabric.api.client.gametest.v1.TestInput;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -70,13 +74,15 @@ final class Commands {
 			case "size" -> size(r.integer("width"), r.integer("height"));
 			case "scale" -> scale(r.integer("scale"));
 			case "lang" -> lang(r.string("code"));
-			case "world" -> world(r.flag("normal"));
+			case "world" -> world(r.flag("normal"), r.flag("creative"), r.flag("cheats"));
+			case "command" -> command(r.string("text"));
 			case "leave" -> leave();
 			case "hud" -> hud(r.flag("on"));
 			case "hover" -> hover(r.decimal("x"), r.decimal("y"));
 			case "click" -> r.args().has("text")
 					? clickText(r.string("text"), r.integer("button", 0))
 					: click(r.decimal("x"), r.decimal("y"), r.integer("button", 0));
+			case "mouse" -> mouse(r.string("action"), r.integer("button", 0));
 			case "key" -> key(r.string("key"));
 			case "type" -> type(r.string("text"));
 			case "wait" -> waitTicks(r.integer("ticks"));
@@ -233,16 +239,33 @@ final class Commands {
 
 	// --- world -------------------------------------------------------------------------------------------------
 
-	private JsonElement world(boolean normal) {
+	private JsonElement world(boolean normal, boolean creative, boolean cheats) {
 		if (world == null) {
 			// Consistent settings = flat, seed 1, no mobs, frozen time and weather.
-			world = context.worldBuilder().setUseConsistentSettings(!normal).create();
+			world = context.worldBuilder().setUseConsistentSettings(!normal).adjustSettings(s -> {
+				if (creative) {
+					s.setGameMode(WorldCreationUiState.SelectedGameMode.CREATIVE);
+				}
+				if (creative || cheats) {
+					s.setAllowCommands(true);
+				}
+			}).create();
 			world.getConnection().waitForChunksRender();
 		}
 		JsonObject o = new JsonObject();
 		o.addProperty("save", world.getWorldSave().getSaveDirectory().toString());
 		o.addProperty("screen", currentScreen());
 		return o;
+	}
+
+	/** Runs a command on the integrated server with full permissions, e.g. {@code gamemode creative @a}. */
+	private JsonElement command(String text) {
+		if (world == null) {
+			throw new CommandException("not in a world (run `world` first)");
+		}
+		world.getServer().runCommand(text.startsWith("/") ? text.substring(1) : text);
+		context.waitTick();
+		return new JsonPrimitive(text);
 	}
 
 	private JsonElement leave() {
@@ -284,6 +307,17 @@ final class Commands {
 		return o;
 	}
 
+	/** Press or release a mouse button at the current cursor; moving the cursor (hover) while held drags. */
+	private JsonElement mouse(String action, int button) {
+		switch (action) {
+			case "down" -> input.holdMouse(mouseButton(button));
+			case "up" -> input.releaseMouse(mouseButton(button));
+			default -> throw new CommandException("mouse action must be down or up");
+		}
+		context.waitTick();
+		return screenName();
+	}
+
 	/** CLI buttons are 0 left, 1 right, 2 middle. 26.3 uses SDL3, whose button numbers start at 1. */
 	private static int mouseButton(int button) {
 		return switch (button) {
@@ -315,6 +349,11 @@ final class Commands {
 		throw new CommandException("no visible widget with text '" + text + "'. Widgets: " + seen);
 	}
 
+	// SDL_Keymod bits (left keys), which 26.3 KeyEvent.modifiers() uses.
+	private static final int MOD_SHIFT = 0x0001;
+	private static final int MOD_CTRL = 0x0040;
+	private static final int MOD_ALT = 0x0100;
+
 	/** Key names are vanilla's ({@code escape}, {@code enter}, {@code tab}, {@code a}, {@code f3}), with optional {@code ctrl+}, {@code shift+}, {@code alt+}. */
 	private JsonElement key(String spec) {
 		String[] parts = spec.toLowerCase(Locale.ROOT).split("\\+");
@@ -324,25 +363,44 @@ final class Commands {
 			throw new CommandException("unknown key '" + name + "' (try escape, enter, tab, backspace, left, a, f1)");
 		}
 		List<Runnable> release = new ArrayList<>();
+		int modifiers = 0;
 		for (int i = 0; i < parts.length - 1; i++) {
 			switch (parts[i]) {
 				case "ctrl", "control", "cmd" -> {
 					input.holdControl();
 					release.add(input::releaseControl);
+					modifiers |= MOD_CTRL;
 				}
 				case "shift" -> {
 					input.holdShift();
 					release.add(input::releaseShift);
+					modifiers |= MOD_SHIFT;
 				}
 				case "alt" -> {
 					input.holdAlt();
 					release.add(input::releaseAlt);
+					modifiers |= MOD_ALT;
 				}
 				default -> throw new CommandException("unknown modifier '" + parts[i] + "' (ctrl, shift, alt)");
 			}
 		}
 		try {
-			input.pressKey(key);
+			// Fabric's TestInput always sends KeyEvents with modifiers = 0, so widgets never see ctrl+a and the
+			// like. With modifiers and a screen open, hand the screen a KeyEvent that carries them.
+			int mods = modifiers;
+			boolean sent = mods != 0 && context.computeOnClient(client -> {
+				Screen screen = client.gui.screen();
+				if (screen == null) {
+					return false;
+				}
+				KeyEvent event = new KeyEvent(key.getValue(), SDLKeyboard.SDL_GetKeyFromScancode(key.getValue(), (short) 0, false), mods);
+				screen.keyPressed(event);
+				screen.keyReleased(event);
+				return true;
+			});
+			if (!sent) {
+				input.pressKey(key);
+			}
 		} finally {
 			release.forEach(Runnable::run);
 		}
@@ -378,10 +436,22 @@ final class Commands {
 		String fileName = out.getFileName().toString();
 		String name = fileName.endsWith(".png") ? fileName.substring(0, fileName.length() - 4) : fileName;
 		TestScreenshotOptions options = TestScreenshotOptions.of(name).disableCounterPrefix().withDestinationDir(out.getParent());
+		// TestScreenshotOptions.withSize only changes the render target, so the GUI keeps its old layout and the
+		// shot is a crop. Resize the window instead (the screen re-lays itself out), then put it back.
+		int[] previous = null;
 		if (width > 0 && height > 0) {
-			options = options.withSize(width, height);
+			previous = context.computeOnClient(client -> new int[] {client.getWindow().getWidth(), client.getWindow().getHeight()});
+			size(width, height);
+			context.waitTicks(Math.max(1, waitTicks));
 		}
-		Path saved = context.takeScreenshot(options);
+		Path saved;
+		try {
+			saved = context.takeScreenshot(options);
+		} finally {
+			if (previous != null) {
+				size(previous[0], previous[1]);
+			}
+		}
 		if (!saved.toAbsolutePath().normalize().equals(out)) {
 			Files.move(saved, out, StandardCopyOption.REPLACE_EXISTING);
 		}
