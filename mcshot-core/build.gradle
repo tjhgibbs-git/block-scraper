@@ -1,0 +1,22 @@
+plugins {
+	id 'java-library'
+}
+
+dependencies {
+	// Minecraft ships Gson, so the mod gets it at runtime for free.
+	compileOnly 'com.google.code.gson:gson:2.11.0'
+
+	testImplementation 'com.google.code.gson:gson:2.11.0'
+	testImplementation platform('org.junit:junit-bom:5.11.4')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.release = 21
+	options.encoding = 'UTF-8'
+}
+
+test {
+	useJUnitPlatform()
+}

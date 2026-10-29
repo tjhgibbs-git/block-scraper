@@ -1,0 +1,44 @@
+// Adds a `runMcshot` task to a Loom project: a dev client with the mcshot session enabled and the hot-swap agent
+// attached. Apply it after the Loom plugin:  apply from: rootProject.file('gradle/mcshot.gradle')
+//
+// Optional -P properties (the mcshot CLI passes these through):
+//   mcshot.port      socket port (default 25599)
+//   mcshot.size      initial window size (default 1280x720)
+//   mcshot.idleTick  tick while idle so a visible window stays responsive (default false)
+//   mcshot.javaHome  JDK to run the client with, e.g. JetBrains Runtime; enables enhanced class redefinition
+
+evaluationDependsOn(':mcshot-agent')
+
+def agentJar = project(':mcshot-agent').tasks.named('jar').get().archiveFile.get().asFile
+def mcshotProp = { String name, String fallback -> (findProperty(name) ?: fallback).toString() }
+def javaHome = findProperty('mcshot.javaHome')
+
+loom {
+	runs {
+		mcshot {
+			client()
+			configName = 'mcshot'
+			runDir 'run/mcshot'
+			ideConfigGenerated false
+			// Fabric runs the "fabric-client-gametest" entrypoints; the modid filter keeps other mods' tests out.
+			property 'fabric.client.gametest'
+			property 'fabric.client.gametest.modid', 'mcshot'
+			property 'mcshot.enabled', 'true'
+			property 'mcshot.port', mcshotProp('mcshot.port', '25599')
+			property 'mcshot.size', mcshotProp('mcshot.size', '1280x720')
+			property 'mcshot.idleTick', mcshotProp('mcshot.idleTick', 'false')
+			vmArg "-javaagent:${agentJar}"
+			if (javaHome != null) {
+				vmArg '-XX:+AllowEnhancedClassRedefinition'
+			}
+			programArgs '--username', 'mcshot'
+		}
+	}
+}
+
+tasks.matching { it.name == 'runMcshot' }.configureEach {
+	dependsOn ':mcshot-agent:jar'
+	if (javaHome != null) {
+		executable = "${javaHome}/bin/java"
+	}
+}

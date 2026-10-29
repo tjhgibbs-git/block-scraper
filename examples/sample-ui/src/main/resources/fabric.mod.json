@@ -1,0 +1,18 @@
+{
+	"schemaVersion": 1,
+	"id": "mcshot-sample-ui",
+	"version": "${version}",
+	"name": "mcshot sample UI",
+	"description": "A small config screen used by mcshot's tests and as a template.",
+	"environment": "client",
+	"entrypoints": {
+		"mcshot": [
+			"dev.mcshot.sample.SampleScreens"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.3",
+		"java": ">=25"
+	}
+}

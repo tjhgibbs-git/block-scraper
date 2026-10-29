@@ -1,0 +1,26 @@
+pluginManagement {
+	repositories {
+		maven {
+			name = 'Fabric'
+			url = 'https://maven.fabricmc.net/'
+		}
+		mavenCentral()
+		gradlePluginPortal()
+	}
+	plugins {
+		id 'net.fabricmc.fabric-loom' version "${loom_version}"
+	}
+}
+
+rootProject.name = 'mcshot'
+
+// Plain-Java modules: no Minecraft needed to build or test these.
+include 'mcshot-core', 'mcshot-agent'
+
+// The Fabric projects need maven.fabricmc.net and Mojang's servers. Pass
+// -Pmcshot.coreOnly to skip them (e.g. in sandboxes without that access).
+if (!providers.gradleProperty('mcshot.coreOnly').isPresent()) {
+	include 'mcshot-mod'
+	include 'sample-ui'
+	project(':sample-ui').projectDir = file('examples/sample-ui')
+}

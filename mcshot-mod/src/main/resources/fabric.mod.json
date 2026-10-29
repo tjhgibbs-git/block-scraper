@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"id": "mcshot",
+	"version": "${version}",
+	"name": "mcshot",
+	"description": "Dev-only: drive a running client over a local socket to open screens and take screenshots. Inert unless -Dmcshot.enabled=true.",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"dev.mcshot.mod.McShotSession"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-client-gametest-api-v1": "*",
+		"fabric-screen-api-v1": "*"
+	}
+}

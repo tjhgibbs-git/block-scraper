@@ -1,0 +1,49 @@
+name: mcshot
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Java tests (core + agent)
+        run: ./gradlew -Pmcshot.coreOnly test
+      - name: CLI tests
+        run: python3 -m unittest discover -s tests -v
+
+  e2e:
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Headless deps
+        run: scripts/setup-headless.sh
+      - name: Build
+        run: ./gradlew build
+      - name: Milestones M1-M4 (headless)
+        run: scripts/e2e.sh
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcshot-shots
+          path: |
+            shots/
+            .mcshot/client.log
+            examples/sample-ui/run/mcshot/logs/
+          if-no-files-found: warn

@@ -1,0 +1,600 @@
+#!/usr/bin/env python3
+"""mcshot: drive a running Minecraft dev client for UI screenshots.
+
+One client stays running; each call sends one command over a local socket and
+prints the result once the game has finished acting on it.
+
+    mcshot start                      launch the dev client (headless under Xvfb if no display)
+    mcshot open sample-config         open a registered screen
+    mcshot shot shots/a.png           save a PNG, print its absolute path
+    mcshot reload                     recompile, hot-swap changed classes, reopen the screen
+    mcshot stop
+
+Run `mcshot <command> -h` for details. Python 3.9+, standard library only.
+"""
+
+import argparse
+import itertools
+import json
+import os
+import shlex
+import shutil
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import time
+import zlib
+from pathlib import Path
+
+DEFAULT_PORT = 25599
+EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_RUNNING = 0, 1, 2, 3
+
+
+class McShotError(Exception):
+    def __init__(self, message, code=EXIT_FAILED):
+        super().__init__(message)
+        self.code = code
+
+
+# --- connection --------------------------------------------------------------------------------------------------
+
+_ids = itertools.count(1)
+
+
+def send(port, cmd, args=None, timeout=300.0):
+    """Sends one request and returns its result, raising McShotError on an error reply."""
+    try:
+        sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+    except OSError:
+        raise McShotError(f"no mcshot client on port {port}: run `mcshot start` first", EXIT_NOT_RUNNING)
+    with sock:
+        sock.settimeout(timeout)
+        request = {"id": next(_ids), "cmd": cmd, "args": args or {}}
+        buf = b""
+        try:
+            sock.sendall((json.dumps(request) + "\n").encode())
+            while not buf.endswith(b"\n"):
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+        except socket.timeout:
+            raise McShotError(f"'{cmd}' timed out after {timeout:.0f}s")
+        except OSError as e:
+            raise McShotError(f"connection lost during '{cmd}': {e}", EXIT_NOT_RUNNING)
+        if not buf.endswith(b"\n"):
+            raise McShotError(f"client closed the connection during '{cmd}'", EXIT_NOT_RUNNING)
+    reply = json.loads(buf)
+    if not reply.get("ok"):
+        raise McShotError(reply.get("error", "unknown error"))
+    return reply.get("result")
+
+
+def reachable(port):
+    try:
+        send(port, "ping", timeout=5)
+        return True
+    except McShotError:
+        return False
+
+
+# --- project & process state -------------------------------------------------------------------------------------
+
+def find_project(explicit):
+    if explicit:
+        return Path(explicit).resolve()
+    if os.environ.get("MCSHOT_PROJECT"):
+        return Path(os.environ["MCSHOT_PROJECT"]).resolve()
+    here = Path.cwd().resolve()
+    for d in [here, *here.parents]:
+        if (d / "gradlew").exists() and ((d / "settings.gradle").exists() or (d / "settings.gradle.kts").exists()):
+            return d
+    return Path(__file__).resolve().parent
+
+
+def state_dir(project):
+    d = project / ".mcshot"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def read_pidfile(project):
+    f = project / ".mcshot" / "client.json"
+    try:
+        return json.loads(f.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def write_pidfile(project, data):
+    (state_dir(project) / "client.json").write_text(json.dumps(data, indent=2))
+
+
+def remove_pidfile(project):
+    try:
+        (project / ".mcshot" / "client.json").unlink()
+    except FileNotFoundError:
+        pass
+
+
+def alive(pid):
+    if not pid:
+        return False
+    try:
+        if os.waitpid(pid, os.WNOHANG)[0] == pid:
+            return False  # our own child (e.g. during restart) that has exited
+    except ChildProcessError:
+        pass  # not our child
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def tail(path, lines=40):
+    try:
+        return "\n".join(Path(path).read_text(errors="replace").splitlines()[-lines:])
+    except OSError:
+        return "(no log)"
+
+
+# --- PNG helpers (no dependencies) -------------------------------------------------------------------------------
+
+def read_png(path):
+    """Returns (width, height, channels, pixel bytes) for 8-bit RGB/RGBA/grey PNGs."""
+    data = Path(path).read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise McShotError(f"{path} is not a PNG")
+    pos, idat, width = 8, [], None
+    while pos < len(data):
+        length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + length]
+        if kind == b"IHDR":
+            width, height, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", body)
+            if depth != 8 or interlace or ctype not in (0, 2, 4, 6):
+                raise McShotError(f"{path}: only 8-bit non-interlaced PNGs are supported")
+            channels = {0: 1, 2: 3, 4: 2, 6: 4}[ctype]
+        elif kind == b"IDAT":
+            idat.append(body)
+        elif kind == b"IEND":
+            break
+        pos += 12 + length
+    raw = zlib.decompress(b"".join(idat))
+    stride = width * channels
+    out = bytearray(stride * height)
+    prev = bytearray(stride)
+    for y in range(height):
+        f = raw[y * (stride + 1)]
+        line = bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        if f == 1:
+            for i in range(channels, stride):
+                line[i] = (line[i] + line[i - channels]) & 0xFF
+        elif f == 2:
+            for i in range(stride):
+                line[i] = (line[i] + prev[i]) & 0xFF
+        elif f == 3:
+            for i in range(stride):
+                left = line[i - channels] if i >= channels else 0
+                line[i] = (line[i] + ((left + prev[i]) >> 1)) & 0xFF
+        elif f == 4:
+            for i in range(stride):
+                a = line[i - channels] if i >= channels else 0
+                b = prev[i]
+                c = prev[i - channels] if i >= channels else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pred = a if pa <= pb and pa <= pc else (b if pb <= pc else c)
+                line[i] = (line[i] + pred) & 0xFF
+        out[y * stride:(y + 1) * stride] = line
+        prev = line
+    return width, height, channels, bytes(out)
+
+
+def png_stats(path):
+    w, h, ch, px = read_png(path)
+    colour = min(ch, 3)
+    lum = [sum(px[i:i + colour]) / colour for i in range(0, len(px), ch)]
+    mean = sum(lum) / len(lum)
+    var = sum((v - mean) ** 2 for v in lum) / len(lum)
+    distinct = len({px[i:i + colour] for i in range(0, len(px), ch * 7)})
+    return {"path": str(Path(path).resolve()), "width": w, "height": h, "mean": round(mean, 2),
+            "stddev": round(var ** 0.5, 2), "distinctColours": distinct}
+
+
+def png_diff(a, b):
+    wa, ha, ca, pa = read_png(a)
+    wb, hb, cb, pb = read_png(b)
+    if (wa, ha) != (wb, hb):
+        return {"same": False, "reason": f"size differs: {wa}x{ha} vs {wb}x{hb}"}
+    colour = min(ca, cb, 3)
+    diff = sum(1 for i in range(wa * ha) if pa[i * ca:i * ca + colour] != pb[i * cb:i * cb + colour])
+    return {"same": diff == 0, "differentPixels": diff, "fraction": round(diff / (wa * ha), 6)}
+
+
+# --- local commands ----------------------------------------------------------------------------------------------
+
+def cmd_start(o):
+    project = find_project(o.project_dir)
+    existing = read_pidfile(project)
+    if existing and (alive(existing.get("launcherPid")) or alive(existing.get("gamePid"))):
+        if reachable(existing.get("port", o.port)):
+            raise McShotError(f"a client is already running (pid {existing.get('gamePid')}, port {existing.get('port')}); "
+                              "use `mcshot stop` or `mcshot restart`")
+        raise McShotError(f"a client from {project / '.mcshot/client.json'} is still starting or stuck; "
+                          "use `mcshot stop` to clean it up")
+    if reachable(o.port):
+        raise McShotError(f"something already answers on port {o.port}; stop it or pass --port")
+
+    gradlew = project / ("gradlew.bat" if os.name == "nt" else "gradlew")
+    if not gradlew.exists():
+        raise McShotError(f"no gradlew in {project}; pass --project-dir")
+    cmd = [str(gradlew), o.task, "--console=plain", f"-Pmcshot.port={o.port}", f"-Pmcshot.size={o.size}"]
+    if o.idle_tick:
+        cmd.append("-Pmcshot.idleTick=true")
+    java_home = o.java_home or os.environ.get("MCSHOT_JAVA_HOME")
+    if java_home:
+        cmd.append(f"-Pmcshot.javaHome={java_home}")
+
+    env = dict(os.environ)
+    has_display = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    headless = o.headless or (not has_display and sys.platform.startswith("linux"))
+    if headless:
+        if not shutil.which("xvfb-run"):
+            raise McShotError("no display and no xvfb-run: install it with scripts/setup-headless.sh")
+        cmd = ["xvfb-run", "-a", "-s", "-screen 0 1920x1080x24"] + cmd
+        env["SDL_VIDEODRIVER"] = "x11"
+        env.pop("WAYLAND_DISPLAY", None)
+
+    log_path = state_dir(project) / "client.log"
+    log = open(log_path, "w")
+    proc = subprocess.Popen(cmd, cwd=project, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                            env=env, start_new_session=True)
+    state = {"launcherPid": proc.pid, "gamePid": None, "port": o.port, "project": str(project),
+             "headless": headless, "started": time.time(), "log": str(log_path)}
+    write_pidfile(project, state)
+    progress(o, f"starting client ({' '.join(cmd)}), log: {log_path}")
+
+    deadline = time.time() + o.timeout
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            remove_pidfile(project)
+            raise McShotError(f"client exited with code {proc.returncode} before answering. Last log lines:\n{tail(log_path)}")
+        try:
+            status = send(o.port, "status", timeout=10)
+        except McShotError:
+            time.sleep(1)
+            continue
+        state["gamePid"] = status.get("pid")
+        write_pidfile(project, state)
+        status["startSeconds"] = round(time.time() - state["started"], 1)
+        return status
+    raise McShotError(f"client did not answer within {o.timeout}s (still running; see {log_path} or `mcshot stop`)")
+
+
+def cmd_stop(o):
+    project = find_project(o.project_dir)
+    state = read_pidfile(project) or {}
+    port = state.get("port", o.port)
+    was_running = False
+    try:
+        send(port, "quit", timeout=30)
+        was_running = True
+    except McShotError:
+        pass
+    deadline = time.time() + o.timeout
+    pids = [p for p in (state.get("gamePid"), state.get("launcherPid")) if p]
+    while time.time() < deadline and (reachable(port) or any(alive(p) for p in pids)):
+        time.sleep(0.5)
+    killed = []
+    for pid in pids:
+        if alive(pid):
+            was_running = True
+            try:
+                if pid == state.get("launcherPid"):
+                    os.killpg(pid, signal.SIGTERM)
+                else:
+                    os.kill(pid, signal.SIGTERM)
+                killed.append(pid)
+            except (ProcessLookupError, PermissionError):
+                pass
+    if killed:
+        time.sleep(3)
+        for pid in killed:
+            if alive(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+    remove_pidfile(project)
+    return "stopped" if was_running else "not running"
+
+
+def cmd_reload(o):
+    project = find_project(o.project_dir)
+    timings = {}
+    if not o.no_build:
+        build = o.build_cmd or os.environ.get("MCSHOT_BUILD_CMD") or f"{shlex.quote(str(project / 'gradlew'))} classes -q"
+        t = time.time()
+        r = subprocess.run(build, shell=True, cwd=project, capture_output=True, text=True)
+        timings["buildSeconds"] = round(time.time() - t, 2)
+        if r.returncode != 0:
+            raise McShotError(f"build failed ({build}):\n{(r.stdout + r.stderr).strip()[-4000:]}")
+    t = time.time()
+    result = send(o.port, "reload", {"resources": o.resources, "noReopen": o.no_reopen}, timeout=o.cmd_timeout)
+    timings["reloadSeconds"] = round(time.time() - t, 2)
+    result.update(timings)
+    return result
+
+
+def cmd_run(o):
+    path = Path(o.script)
+    results = []
+    for n, line in enumerate(path.read_text().splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            sub = build_parser().parse_args(shlex.split(line) + (["--json"] if o.json else []), namespace=None)
+        except SystemExit:
+            raise McShotError(f"{path}:{n}: bad command: {line}", EXIT_USAGE)
+        if sub.command == "run":
+            raise McShotError(f"{path}:{n}: scripts cannot call `run`", EXIT_USAGE)
+        sub.port, sub.project_dir = o.port, o.project_dir
+        try:
+            result = execute(sub)
+        except McShotError as e:
+            raise McShotError(f"{path}:{n}: {line}: {e}", e.code)
+        if not o.json:
+            print(f"$ {line}")
+        print(render(sub, result))
+        sys.stdout.flush()
+        results.append(result)
+    return None
+
+
+def cmd_log(o):
+    project = find_project(o.project_dir)
+    return tail(project / ".mcshot" / "client.log", o.lines)
+
+
+def progress(o, message):
+    if not getattr(o, "json", False):
+        print(message, file=sys.stderr)
+
+
+# --- argument parsing --------------------------------------------------------------------------------------------
+
+def size_arg(text):
+    try:
+        w, h = text.lower().split("x")
+        return int(w), int(h)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected WIDTHxHEIGHT, got '{text}'")
+
+
+def kv_arg(text):
+    if "=" not in text:
+        raise argparse.ArgumentTypeError(f"expected key=value, got '{text}'")
+    return text.split("=", 1)
+
+
+def build_parser():
+    def common_options(suppress):
+        # Accepted before or after the command. Subcommands use SUPPRESS so they don't overwrite a value given earlier.
+        c = argparse.ArgumentParser(add_help=False)
+        d = (lambda v: argparse.SUPPRESS) if suppress else (lambda v: v)
+        c.add_argument("--json", action="store_true", default=d(False), help="print machine-readable JSON")
+        c.add_argument("--port", type=int, default=d(int(os.environ.get("MCSHOT_PORT", DEFAULT_PORT))),
+                       help=f"client port (default {DEFAULT_PORT}, or $MCSHOT_PORT)")
+        c.add_argument("--project-dir", default=d(None),
+                       help="Gradle project root (default: nearest dir with gradlew, or $MCSHOT_PROJECT)")
+        c.add_argument("--cmd-timeout", type=float, default=d(300.0), help="seconds to wait for a reply (default 300)")
+        return c
+
+    common = common_options(suppress=True)
+    p = argparse.ArgumentParser(prog="mcshot", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+                                parents=[common_options(suppress=False)])
+    sub = p.add_subparsers(dest="command", required=True, metavar="command")
+
+    def add(name, help_text):
+        return sub.add_parser(name, help=help_text, description=help_text, parents=[common])
+
+    def start_options(s):
+        s.add_argument("--task", default=os.environ.get("MCSHOT_TASK", "runMcshot"), help="Gradle task (default runMcshot)")
+        s.add_argument("--size", default="1280x720", help="initial window size (default 1280x720)")
+        s.add_argument("--java-home", help="JDK for the client, e.g. JetBrains Runtime (or $MCSHOT_JAVA_HOME)")
+        s.add_argument("--idle-tick", action="store_true",
+                       help="keep ticking between commands (responsive window, less deterministic)")
+        s.add_argument("--headless", action="store_true", help="force Xvfb even if a display is available")
+        s.add_argument("--timeout", type=float, default=900,
+                       help="seconds to wait for the client (default 900; the first run downloads assets)")
+
+    start_options(add("start", "Launch the dev client and wait until it answers"))
+    s = add("stop", "Stop the client")
+    s.add_argument("--timeout", type=float, default=60)
+    start_options(add("restart", "stop, then start (needed after changes hot reload cannot apply)"))
+    add("status", "Minecraft version, current screen, window size, GUI scale, world, hot reload support")
+    add("screens", "List screen ids that `open` accepts")
+    s = add("open", "Open a registered screen (or class:<fqcn>)")
+    s.add_argument("id")
+    s.add_argument("--arg", action="append", type=kv_arg, default=[], metavar="K=V", help="argument for the screen factory")
+    add("close", "Close the current screen")
+    add("reopen", "Open the last screen again with the same args (picks up code changes)")
+    s = add("size", "Set the window/framebuffer size")
+    s.add_argument("size", type=size_arg, metavar="WxH")
+    s = add("scale", "Set the GUI scale (0 = auto)")
+    s.add_argument("scale", type=int)
+    s = add("lang", "Switch language (e.g. de_de) and reload resources")
+    s.add_argument("code")
+    s = add("world", "Create and join a throwaway singleplayer world (flat, seed 1, frozen time by default)")
+    s.add_argument("--flat", action="store_true", help="the default; accepted for clarity")
+    s.add_argument("--normal", action="store_true", help="vanilla default world settings instead")
+    add("leave", "Leave the world, back to the title screen")
+    s = add("hud", "Show or hide the HUD (F1)")
+    s.add_argument("state", choices=["on", "off"])
+    s = add("hover", "Move the cursor to GUI coordinates")
+    s.add_argument("x", type=float)
+    s.add_argument("y", type=float)
+    s = add("click", "Click at GUI coordinates, or on the widget showing --text")
+    s.add_argument("x", type=float, nargs="?")
+    s.add_argument("y", type=float, nargs="?")
+    s.add_argument("--text", help="click the centre of the visible widget with exactly this text")
+    s.add_argument("--button", type=int, default=0, help="0 left, 1 right, 2 middle")
+    s = add("key", "Press a key: escape, enter, tab, a, f3, ctrl+a, shift+tab ...")
+    s.add_argument("key")
+    s = add("type", "Type text into the focused widget")
+    s.add_argument("text")
+    s = add("wait", "Advance the game N ticks")
+    s.add_argument("ticks", type=int)
+    s = add("shot", "Render and save a PNG; prints its absolute path and size")
+    s.add_argument("out")
+    s.add_argument("--wait-frames", type=int, default=2, help="ticks to run first (default 2)")
+    s.add_argument("--size", type=size_arg, metavar="WxH", help="render at this size for this shot only")
+    add("widgets", "List the current screen's widgets: class, x/y/w/h, text, state")
+    s = add("reload", "Rebuild, hot-swap changed classes, reopen the screen")
+    s.add_argument("--resources", action="store_true", help="also reload resources (textures, lang, sprites)")
+    s.add_argument("--no-build", action="store_true", help="skip the Gradle build")
+    s.add_argument("--build-cmd", help="build command (default: ./gradlew classes -q, or $MCSHOT_BUILD_CMD)")
+    s.add_argument("--no-reopen", action="store_true")
+    s = add("run", "Run a script: one mcshot command per line, stop at the first error")
+    s.add_argument("script")
+    s = add("stats", "Local: size, mean, stddev and colour count of a PNG")
+    s.add_argument("png")
+    s.add_argument("--min-stddev", type=float, help="fail if the image is flatter than this (blank check)")
+    s = add("diff", "Local: compare two PNGs pixel by pixel")
+    s.add_argument("a")
+    s.add_argument("b")
+    s.add_argument("--max-fraction", type=float, default=0.0, help="fail if more than this fraction differs")
+    s = add("log", "Show the end of the client log")
+    s.add_argument("-n", "--lines", type=int, default=60)
+    return p
+
+
+# --- dispatch ----------------------------------------------------------------------------------------------------
+
+def remote(o):
+    """Maps a parsed command to (cmd, args) for the client."""
+    c = o.command
+    if c in ("status", "screens", "close", "reopen", "widgets", "leave"):
+        return c, {}
+    if c == "open":
+        return "open", {"id": o.id, "args": dict(o.arg)}
+    if c == "size":
+        return "size", {"width": o.size[0], "height": o.size[1]}
+    if c == "scale":
+        return "scale", {"scale": o.scale}
+    if c == "lang":
+        return "lang", {"code": o.code}
+    if c == "world":
+        return "world", {"normal": o.normal}
+    if c == "hud":
+        return "hud", {"on": o.state == "on"}
+    if c == "hover":
+        return "hover", {"x": o.x, "y": o.y}
+    if c == "click":
+        if o.text is not None:
+            return "click", {"text": o.text, "button": o.button}
+        if o.x is None or o.y is None:
+            raise McShotError("click needs X Y or --text", EXIT_USAGE)
+        return "click", {"x": o.x, "y": o.y, "button": o.button}
+    if c == "key":
+        return "key", {"key": o.key}
+    if c == "type":
+        return "type", {"text": o.text}
+    if c == "wait":
+        return "wait", {"ticks": o.ticks}
+    if c == "shot":
+        args = {"path": str(Path(o.out).resolve()), "wait": o.wait_frames}
+        if o.size:
+            args.update(width=o.size[0], height=o.size[1])
+        return "shot", args
+    raise McShotError(f"unknown command {c}", EXIT_USAGE)
+
+
+def execute(o):
+    c = o.command
+    if c == "start":
+        return cmd_start(o)
+    if c == "stop":
+        return cmd_stop(o)
+    if c == "restart":
+        o_stop = argparse.Namespace(**vars(o))
+        o_stop.timeout = 60
+        cmd_stop(o_stop)
+        return cmd_start(o)
+    if c == "reload":
+        return cmd_reload(o)
+    if c == "run":
+        return cmd_run(o)
+    if c == "log":
+        return cmd_log(o)
+    if c == "stats":
+        s = png_stats(o.png)
+        if o.min_stddev is not None and s["stddev"] < o.min_stddev:
+            raise McShotError(f"{o.png} looks blank: stddev {s['stddev']} < {o.min_stddev}")
+        return s
+    if c == "diff":
+        d = png_diff(o.a, o.b)
+        if not d["same"] and ("reason" in d or d["fraction"] > o.max_fraction):
+            raise McShotError(f"images differ: {d}")
+        return d
+    cmd, args = remote(o)
+    return send(o.port, cmd, args, timeout=o.cmd_timeout)
+
+
+def render(o, result):
+    """Human-readable output; --json prints the raw result."""
+    if o.json:
+        return json.dumps(result)
+    c = o.command
+    if result is None:
+        return ""
+    if c == "shot":
+        return f"{result['path']} {result['width']}x{result['height']} ({result['millis']} ms)"
+    if c == "widgets":
+        lines = [f"screen: {result['screen']} (gui {result['guiWidth']}x{result['guiHeight']})"]
+        for w in result["widgets"]:
+            flags = [f for f in ("focused", "hovered") if w.get(f)] + ([] if w.get("active") else ["inactive"]) \
+                + ([] if w.get("visible") else ["hidden"])
+            value = f" value={w['value']!r}" if "value" in w else ""
+            lines.append(f"  {w['class'].rsplit('.', 1)[-1]:<16} x={w['x']:<4} y={w['y']:<4} w={w['w']:<4} h={w['h']:<3} "
+                         f"{w['text']!r}{value}{' [' + ','.join(flags) + ']' if flags else ''}")
+        return "\n".join(lines)
+    if c == "screens":
+        return "\n".join(result)
+    if c == "reload":
+        changed = ", ".join(result["redefined"]) or "no loaded classes changed"
+        extra = f" (not loaded yet: {', '.join(result['pending'])})" if result["pending"] else ""
+        timing = " ".join(f"{k}={v}" for k, v in result.items() if k.endswith("Seconds"))
+        return f"redefined: {changed}{extra}\n{timing}"
+    if isinstance(result, dict):
+        return "\n".join(f"{k}: {v}" for k, v in result.items())
+    return str(result)
+
+
+def main(argv=None):
+    parser = build_parser()
+    o = parser.parse_args(argv)
+    try:
+        result = execute(o)
+    except McShotError as e:
+        if o.json:
+            print(json.dumps({"ok": False, "error": str(e)}))
+        else:
+            print(f"mcshot: {e}", file=sys.stderr)
+        return e.code
+    except KeyboardInterrupt:
+        return 130
+    out = render(o, result)
+    if out:
+        print(out)
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())
