@@ -38,7 +38,7 @@ Exit codes: 0 ok, 1 command failed, 2 bad usage, 3 no client running.
 | `size <w>x<h>` / `scale <n>` / `lang <code>` | Window size, GUI scale (0 = auto), language (reloads resources) |
 | `world [--flat\|--normal]` / `leave` | Throwaway singleplayer world (flat, seed 1, frozen time and weather by default) |
 | `hud on\|off` | F1 |
-| `hover <x> <y>` / `click <x> <y>` / `click --text T` | Mouse, in GUI coordinates (the ones `widgets` prints) |
+| `hover <x> <y>` / `click <x> <y> [--button 0\|1\|2]` / `click --text T` | Mouse, in GUI coordinates (the ones `widgets` prints); buttons are left/right/middle |
 | `key <name>` / `type <text>` | `escape`, `enter`, `tab`, `a`, `f3`, `ctrl+a`, `shift+tab` …; type into the focused widget |
 | `wait <ticks>` | Advance the game |
 | `shot <out.png> [--wait-frames 2] [--size WxH]` | Render and save; prints absolute path and size |
@@ -75,7 +75,8 @@ API turns off tutorials, clouds, onboarding and music. Animated things (the titl
 still differ by a few pixels.
 
 **Headless:** with no `DISPLAY`, `start` runs the client under `xvfb-run -s "-screen 0 1920x1080x24"`. Mesa
-llvmpipe renders GUI screens fine. Shaders and heavy world rendering are slow and may come out black.
+llvmpipe renders GUI screens and a flat world fine (that's what CI does). Shaders and heavy world rendering
+are slow and may come out black.
 
 ## Using it in your own mod
 
@@ -107,4 +108,4 @@ scripts/e2e.sh                              # milestones M1–M4 against the rea
 
 CI (`.github/workflows/mcshot.yml`) runs all three on ubuntu-latest and uploads the PNGs as artifacts.
 
-See [AGENTS.md](AGENTS.md) for the loop written for coding agents, and [HANDOFF.md](HANDOFF.md) for what's verified so far.
+See [AGENTS.md](AGENTS.md) for the loop written for coding agents, and [HANDOFF.md](HANDOFF.md) for what's verified, what isn't, and what changed in Minecraft 26.3.

@@ -1,47 +1,53 @@
 # Handoff: state of mcshot
 
-The first session ran in a sandbox that **could not reach maven.fabricmc.net or Mojang's servers**, so the
-Fabric side was compiled and run only through GitHub Actions (below). Delete this file once e2e is green.
+**Status: all milestones pass headless on GitHub Actions** (run 8, commit 429286e, ubuntu-latest, Temurin 25,
+Xvfb + Mesa llvmpipe). The first session's sandbox could not reach maven.fabricmc.net or Mojang, so the
+Fabric side was compiled and debugged entirely through CI; core, agent and CLI were also tested locally.
 
-## Verified in the sandbox
+## Verified (CI run 8)
 
-- `mcshot-core`: socket server and command queue. 6 tests: replies, error passing, malformed input, ordering.
-- `mcshot-agent`: hot swap. 2 tests that start a child JVM with the agent, recompile a class on disk and check the
-  running code changes, and that a schema change gives `restart required` and leaves the old code running.
-- `mcshot` CLI: 14 tests against `tests/fake_mod.py`, including the `start`/`stop` lifecycle with a fake
-  `gradlew`, PID file, scripts, PNG stats/diff, exit codes.
+| Milestone | Result |
+|---|---|
+| M1 | `start` answers in 22 s (warm Gradle cache), 1280x720 title shot in ~240 ms, non-blank (stddev 62), repeat shot pixel-identical |
+| M2 | registry + `--arg`, `widgets`, `click --text` changes the counter (`Clicked 0 times` → `Clicked 1 times`), hover tooltip, `scale 2`, `lang de_de`, `reopen` |
+| M3 | edit colour → `reload` → new PNG in **3.9 s** (build 3.1 s, hot swap 0.2 s); the PNG changes; revert reload 1.9 s |
+| M4 | `world --flat`, `hud off` changes the shot, inventory shot non-blank |
+| Unit | 6 core + 2 agent Java tests, 14 CLI tests |
 
-Run: `./gradlew -Pmcshot.coreOnly test && python3 -m unittest discover -s tests`
+Shots take 200–600 ms. The spec's "done when" list: CI runs M1–M4 and uploads PNGs ✓; same commands give
+the same pixels ✓ (title screen); README + AGENTS.md ✓; inert without the flag ✓ by construction (see below).
 
-## Verified by CI (GitHub Actions, ubuntu-latest, Temurin 25)
+## Things learned about Minecraft 26.3 (all handled in the code)
 
-Run 3 (commit 8b3bb6b), the first one where the client launched:
-- `./gradlew build` passes: Loom 1.19.3 resolves, Minecraft 26.3 downloads, everything compiles.
-- **M1 passes**: `start` under Xvfb answers in 34 s (cold), `status` is right (1280x720, GUI scale 3,
-  427x240 GUI), a title-screen shot takes ~250 ms and is non-blank (stddev 62), and a second shot is
-  **pixel-identical** (0 pixels differ). Mesa llvmpipe gives GL 4.5 core under Xvfb.
-- M2 so far: `screens`, `open sample-config --arg`, `widgets` (classes, bounds, EditBox value, hovered) and
-  `hover` work. `click` went through MouseHandler and did not reach the screen.
+- Screens live on `Gui`: `client.gui.screen()/setScreen()/overlay()/toastManager()`; `resizeDisplay()` is `resizeGui()`.
+- Rendering: `render(GuiGraphics…)` → `extractRenderState(GuiGraphicsExtractor…)`; `fill`, `outline`,
+  `centeredText`, `text`.
+- Windowing is SDL3: **mouse buttons start at 1** (`InputConstants.MOUSE_BUTTON_LEFT`). Sending 0 is silently
+  ignored by widgets while `Screen.mouseClicked` still returns true (it does whenever a child is under the cursor).
+- No public HUD-hidden flag; `hud on|off` presses F1 and mcshot tracks the state.
+- The renderer is Vulkan-capable ("renderpearl"); under Xvfb it logs harmless swapchain warnings.
+- Fabric's gametest runner crashes the game if the session doesn't end on the title screen with no world,
+  so `Commands.cleanUp` restores that before returning.
 
-Run 4: confirmed `MouseButtonEvent(double, double, MouseButtonInfo)`, `GuiEventListener.mouseClicked(MouseButtonEvent,
-boolean)`, `GuiGraphicsExtractor.outline/centeredText/fill`. Shutdown crashed because cleanup threw before
-returning to the title screen (fixed: the gametest runner requires ending on the title screen).
+## Not verified yet
 
-Run 7 (all milestones, soft failures): everything except `click` passed.
-- M2: tooltip on hover, `scale 2` (640x360 GUI), `lang de_de`, `reopen`.
-- M3: `reload` redefined `SampleConfigScreen` and the new shot differs. Edit → PNG took 11.3 s with a cold
-  Gradle daemon (build 10.5 s, reload 0.18 s); the next reload built in 2.1 s. e2e now warms Gradle first.
-- M4: flat world, `hud off` (F1) changes the shot, inventory shot is non-blank. Shots ~200–600 ms.
-- `click`: root cause found. 26.3 uses SDL3, whose mouse buttons start at 1, and mcshot sent 0. (The
-  screen's `mouseClicked` returns true whenever a child is under the cursor, which hid this.) Fixed by
-  mapping 0/1/2 to `InputConstants.MOUSE_BUTTON_*` and going back to the real input path.
-- `close` in a world returned a null screen name through `JsonPrimitive` → NPE. Fixed.
+- **Nobody has looked at the PNGs.** The artifact host (blob.core.windows.net) was blocked from the first
+  sandbox, so only automated checks (non-blank, pixel diffs) ran. Download `mcshot-shots` from the run page
+  and eyeball them, especially the tooltip, de_de and inventory shots.
+- Running with the enable flag unset: inert by construction (Fabric only calls gametest entrypoints with
+  `-Dfabric.client.gametest`; mcshot also checks `-Dmcshot.enabled`), but there's no test for it.
+- JetBrains Runtime / `--java-home` (enhanced redefinition), macOS and Windows, a visible desktop window
+  (`--idle-tick`), and `open class:<fqcn>` / `options` / `chat` / `pause` screens.
+- `key` and `type` aren't exercised by e2e.
+- A cold-Gradle `reload` takes ~11 s; e2e warms Gradle first because the target is the steady-state loop.
 
-## Still open
+## Possible next steps
 
-1. Confirm the click fix and the full green run.
-2. The PNGs haven't been looked at by a person or agent yet: the artifact host is blocked from the first
-   sandbox. Download `mcshot-shots` from the Actions run page.
+- Wrap the CLI as an MCP server (the protocol is already JSON-lines).
+- Publish `mcshot-mod`/`mcshot-agent` (or a Gradle plugin) so other mod repos can depend on it instead of
+  copying `gradle/mcshot.gradle`.
+- e2e coverage for `key`/`type`, `class:`, and the flag-unset check.
+- CI cleanup: remove the javap probe steps once nobody needs them; bump actions off Node 20.
 
 ## Design decisions (and why)
 
