@@ -23,18 +23,22 @@ Run 3 (commit 8b3bb6b), the first one where the client launched:
 - M2 so far: `screens`, `open sample-config --arg`, `widgets` (classes, bounds, EditBox value, hovered) and
   `hover` work. `click` went through MouseHandler and did not reach the screen.
 
-Fixes since then (waiting on CI): `click` now calls the screen's `mouseClicked`/`mouseReleased` directly
+Run 4: confirmed `MouseButtonEvent(double, double, MouseButtonInfo)`, `GuiEventListener.mouseClicked(MouseButtonEvent,
+boolean)`, `GuiGraphicsExtractor.outline/centeredText/fill`. Shutdown crashed because cleanup threw before
+returning to the title screen (fixed: the gametest runner requires ending on the title screen).
+
+Earlier fixes: `click` now calls the screen's `mouseClicked`/`mouseReleased` directly
 (reflection, until the `MouseButtonEvent` signature is confirmed); CI prints the client log and a `javap`
 probe when e2e fails.
 
 ## Still open
 
-1. `click` via direct screen dispatch: confirm, then replace the reflection in `Compat.clickScreen`.
-2. HUD-hidden flag (F1): not a public member of `Options`/`Gui`/`Minecraft` in 26.3; `Compat` searches by
-   reflection. `status` shows `hud: unknown` until it's found. The CI probe lists private boolean fields.
+1. `click` on the sample's counter button doesn't change it, through MouseHandler (run 3) or by calling
+   `Screen.mouseClicked/mouseReleased` directly (run 4, no exception). `click` now reports `pressHandled` /
+   `releaseHandled` to narrow it down.
+2. 26.3 has no HUD-hidden boolean on `Minecraft`, `Gui` or `Options`. `hud on|off` now presses F1 and mcshot
+   tracks the state (`status` → `hud`).
 3. Rest of M2 (tooltip, scale, lang), M3 (hot reload timing) and M4 (world, HUD, inventory) haven't run yet.
-4. The sample screen's border is drawn with `GuiGraphicsExtractor.fill`; its title text was dropped until
-   the 26.3 text-drawing method name is known (the probe dumps the class).
 5. The artifact download host (blob.core.windows.net) is blocked from the first sandbox, so the PNGs were not
    looked at yet. Download `mcshot-shots` from the Actions run page.
 

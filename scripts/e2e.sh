@@ -36,7 +36,8 @@ $M open sample-config --arg name=Steve
 $M shot "$OUT/m2-sample.png"
 $M widgets
 $M click --text "Clicked 0 times"
-$M widgets | grep -q "Clicked 1 times"
+$M widgets | tee "$OUT/m2-widgets-after-click.txt"
+grep -q "Clicked 1 times" "$OUT/m2-widgets-after-click.txt" || { echo "click did not reach the button"; exit 1; }
 $M shot "$OUT/m2-sample-clicked.png"
 expect_differs "$OUT/m2-sample.png" "$OUT/m2-sample-clicked.png"
 $M --json widgets > "$OUT/m2-widgets.json"

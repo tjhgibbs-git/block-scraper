@@ -52,12 +52,8 @@ public class SampleConfigScreen extends Screen {
 		int accent = 0xFF3FA9F5;
 		int x = width / 2 - 110;
 		int y = height / 2 - 75;
-		int w = 220;
-		int h = 170;
-		graphics.fill(x, y, x + w, y + 2, accent);
-		graphics.fill(x, y + h - 2, x + w, y + h, accent);
-		graphics.fill(x, y, x + 2, y + h, accent);
-		graphics.fill(x + w - 2, y, x + w, y + h, accent);
+		graphics.outline(x, y, 220, 170, accent);
+		graphics.centeredText(font, title, width / 2, y + 8, accent);
 	}
 
 	@Override

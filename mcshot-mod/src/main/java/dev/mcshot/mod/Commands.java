@@ -25,6 +25,8 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.MouseButtonInfo;
 
 import net.fabricmc.fabric.api.client.gametest.v1.TestInput;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -47,6 +49,7 @@ final class Commands {
 	private String lastScreenId;
 	private Map<String, String> lastScreenArgs = Map.of();
 	private boolean quit;
+	private boolean hudVisible = true;
 
 	Commands(ClientGameTestContext context) {
 		this.context = context;
@@ -109,11 +112,7 @@ final class Commands {
 			o.addProperty("guiScaleSetting", client.options.guiScale().get());
 			o.addProperty("lang", client.options.languageCode);
 			o.addProperty("inWorld", client.level != null);
-			try {
-				o.addProperty("hud", !Compat.hudHidden(client));
-			} catch (CommandException e) {
-				o.addProperty("hud", "unknown");
-			}
+			o.addProperty("hud", hudVisible);
 		});
 		o.addProperty("lastOpen", lastScreenId);
 		o.addProperty("hotReload", Agent.describe());
@@ -223,8 +222,12 @@ final class Commands {
 		return new JsonPrimitive(code);
 	}
 
+	/** 26.3 has no public HUD-hidden flag, so toggle it the way a player does: F1. mcshot tracks the state. */
 	private JsonElement hud(boolean on) {
-		context.runOnClient(client -> Compat.setHudHidden(client, !on));
+		if (on != hudVisible) {
+			input.pressKey(InputConstants.getKey("key.keyboard.f1"));
+			hudVisible = on;
+		}
 		context.waitTick();
 		return new JsonPrimitive(on);
 	}
@@ -274,14 +277,19 @@ final class Commands {
 		JsonObject o = hover(x, y).getAsJsonObject();
 		// Simulated clicks through MouseHandler don't reach screens in 26.3 under the gametest framework, so deliver
 		// the press and release to the screen directly, as MouseHandler would.
-		context.runOnClient(client -> {
+		boolean[] handled = context.computeOnClient(client -> {
 			Screen screen = client.gui.screen();
 			if (screen == null) {
 				throw new CommandException("no screen open to click on");
 			}
-			Compat.clickScreen(screen, x, y, button);
+			MouseButtonEvent event = new MouseButtonEvent(x, y, new MouseButtonInfo(button, 0));
+			boolean pressed = screen.mouseClicked(event, false);
+			boolean released = screen.mouseReleased(event);
+			return new boolean[] {pressed, released};
 		});
 		context.waitTick();
+		o.addProperty("pressHandled", handled[0]);
+		o.addProperty("releaseHandled", handled[1]);
 		o.addProperty("screen", currentScreen());
 		return o;
 	}
@@ -506,10 +514,10 @@ final class Commands {
 				world.close();
 				world = null;
 			}
-			context.runOnClient(client -> {
-				Compat.setHudHidden(client, false);
-				client.gui.setScreen(new TitleScreen());
-			});
+			context.runOnClient(client -> client.gui.setScreen(new TitleScreen()));
+			if (!hudVisible) {
+				hud(true);
+			}
 		} catch (Throwable t) {
 			McShotSession.LOGGER.warn("mcshot cleanup failed", t);
 		}
