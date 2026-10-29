@@ -38,7 +38,6 @@ public class SampleConfigScreen extends Screen {
 
 		addRenderableWidget(Button.builder(Component.translatable("mcshot-sample-ui.config.clicks", clicks), button -> {
 			clicks++;
-			System.out.println("[sample-ui] counter pressed, clicks=" + clicks);
 			button.setMessage(Component.translatable("mcshot-sample-ui.config.clicks", clicks));
 		}).bounds(x, y + 50, 200, 20).build());
 

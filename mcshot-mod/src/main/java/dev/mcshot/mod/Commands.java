@@ -15,6 +15,7 @@ import java.util.function.Predicate;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -25,8 +26,6 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.input.MouseButtonInfo;
 
 import net.fabricmc.fabric.api.client.gametest.v1.TestInput;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -161,7 +160,7 @@ final class Commands {
 	private JsonElement close() {
 		context.runOnClient(client -> client.gui.setScreen(null));
 		context.waitTick();
-		return new JsonPrimitive(currentScreen());
+		return screenName();
 	}
 
 	// --- window ------------------------------------------------------------------------------------------------
@@ -252,7 +251,7 @@ final class Commands {
 		}
 		world.close();
 		world = null;
-		return new JsonPrimitive(currentScreen());
+		return screenName();
 	}
 
 	// --- input -------------------------------------------------------------------------------------------------
@@ -275,45 +274,29 @@ final class Commands {
 
 	private JsonElement click(double x, double y, int button) {
 		JsonObject o = hover(x, y).getAsJsonObject();
-		// Simulated clicks through MouseHandler don't reach screens in 26.3 under the gametest framework, so deliver
-		// the press and release to the screen directly, as MouseHandler would.
-		// Same sequence as MouseHandler.onButton: press, afterMouseAction, a frame, release, afterMouseAction.
-		MouseButtonEvent event = new MouseButtonEvent(x, y, new MouseButtonInfo(button, 0));
-		boolean[] handled = new boolean[2];
+		String before = textAt(x, y);
+		input.pressMouse(mouseButton(button));
 		JsonObject target = new JsonObject();
-		context.runOnClient(client -> {
-			Screen screen = client.gui.screen();
-			if (screen == null) {
-				throw new CommandException("no screen open to click on");
-			}
-			screen.getChildAt(x, y).ifPresent(child -> {
-				target.addProperty("class", child.getClass().getName());
-				if (child instanceof AbstractWidget w) {
-					target.addProperty("textBefore", w.getMessage().getString());
-				}
-			});
-			handled[0] = screen.mouseClicked(event, false);
-			screen.afterMouseAction();
-			screen.getChildAt(x, y).ifPresent(child -> {
-				if (child instanceof AbstractWidget w) {
-					target.addProperty("textAfter", w.getMessage().getString());
-				}
-			});
-		});
+		target.addProperty("textBefore", before);
+		target.addProperty("textAfter", textAt(x, y));
 		o.add("target", target);
-		context.waitTick();
-		context.runOnClient(client -> {
-			Screen screen = client.gui.screen();
-			if (screen != null) {
-				handled[1] = screen.mouseReleased(event);
-				screen.afterMouseAction();
-			}
-		});
-		context.waitTick();
-		o.addProperty("pressHandled", handled[0]);
-		o.addProperty("releaseHandled", handled[1]);
 		o.addProperty("screen", currentScreen());
 		return o;
+	}
+
+	/** CLI buttons are 0 left, 1 right, 2 middle. 26.3 uses SDL3, whose button numbers start at 1. */
+	private static int mouseButton(int button) {
+		return switch (button) {
+			case 0 -> InputConstants.MOUSE_BUTTON_LEFT;
+			case 1 -> InputConstants.MOUSE_BUTTON_RIGHT;
+			case 2 -> InputConstants.MOUSE_BUTTON_MIDDLE;
+			default -> throw new CommandException("button must be 0 (left), 1 (right) or 2 (middle)");
+		};
+	}
+
+	private String textAt(double x, double y) {
+		JsonElement w = widgetAt(x, y);
+		return w != null && w.isJsonObject() ? w.getAsJsonObject().get("text").getAsString() : null;
 	}
 
 	private JsonElement clickText(String text, int button) {
@@ -364,7 +347,7 @@ final class Commands {
 			release.forEach(Runnable::run);
 		}
 		context.waitTick();
-		return new JsonPrimitive(currentScreen());
+		return screenName();
 	}
 
 	private JsonElement type(String text) {
@@ -501,6 +484,11 @@ final class Commands {
 			}
 			context.waitTick();
 		}
+	}
+
+	private JsonElement screenName() {
+		String name = currentScreen();
+		return name == null ? JsonNull.INSTANCE : new JsonPrimitive(name);
 	}
 
 	private String currentScreen() {

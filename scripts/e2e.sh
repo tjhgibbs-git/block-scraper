@@ -58,6 +58,7 @@ $M lang en_us
 $M close
 
 step "M3: hot reload"
+./gradlew classes -q  # warm the Gradle daemon: the target is the steady-state edit loop, not a cold build
 $M open sample-config
 $M shot "$OUT/m3-before.png"
 sed -i 's/0xFF3FA9F5/0xFFF5A93F/' "$SCREEN_SRC"
@@ -86,7 +87,6 @@ $M leave
 
 step "done"
 ls -l "$OUT"
-grep -h "sample-ui\]" .mcshot/client.log || echo "(sample-ui never logged a press)"
 if [ ${#FAILURES[@]} -gt 0 ]; then
 	printf 'soft failures:\n'; printf '  - %s\n' "${FAILURES[@]}"
 	exit 1

@@ -27,24 +27,21 @@ Run 4: confirmed `MouseButtonEvent(double, double, MouseButtonInfo)`, `GuiEventL
 boolean)`, `GuiGraphicsExtractor.outline/centeredText/fill`. Shutdown crashed because cleanup threw before
 returning to the title screen (fixed: the gametest runner requires ending on the title screen).
 
-Earlier fixes: `click` now calls the screen's `mouseClicked`/`mouseReleased` directly
-(reflection, until the `MouseButtonEvent` signature is confirmed); CI prints the client log and a `javap`
-probe when e2e fails.
+Run 7 (all milestones, soft failures): everything except `click` passed.
+- M2: tooltip on hover, `scale 2` (640x360 GUI), `lang de_de`, `reopen`.
+- M3: `reload` redefined `SampleConfigScreen` and the new shot differs. Edit → PNG took 11.3 s with a cold
+  Gradle daemon (build 10.5 s, reload 0.18 s); the next reload built in 2.1 s. e2e now warms Gradle first.
+- M4: flat world, `hud off` (F1) changes the shot, inventory shot is non-blank. Shots ~200–600 ms.
+- `click`: root cause found. 26.3 uses SDL3, whose mouse buttons start at 1, and mcshot sent 0. (The
+  screen's `mouseClicked` returns true whenever a child is under the cursor, which hid this.) Fixed by
+  mapping 0/1/2 to `InputConstants.MOUSE_BUTTON_*` and going back to the real input path.
+- `close` in a world returned a null screen name through `JsonPrimitive` → NPE. Fixed.
 
 ## Still open
 
-1. `click` on the sample's counter button doesn't change it, through MouseHandler (run 3) or by calling
-   `Screen.mouseClicked/mouseReleased` directly (run 4, no exception). Run 5: `pressHandled: true`,
-   `releaseHandled: false`, button unchanged. Run 6 (MouseHandler's exact sequence, with
-   `afterMouseAction()`): same result. The bytecode shows the normal path (ContainerEventHandler.mouseClicked →
-   getChildAt → AbstractWidget.mouseClicked → playDownSound → onClick → Button.onPress → OnPress), so the
-   sample's lambda should run. `click` now reports the hit child's text before/after and the sample logs
-   `[sample-ui] counter pressed`; e2e treats visual checks as soft failures so M2–M4 all run each time.
-2. 26.3 has no HUD-hidden boolean on `Minecraft`, `Gui` or `Options`. `hud on|off` now presses F1 and mcshot
-   tracks the state (`status` → `hud`).
-3. Rest of M2 (tooltip, scale, lang), M3 (hot reload timing) and M4 (world, HUD, inventory) haven't run yet.
-5. The artifact download host (blob.core.windows.net) is blocked from the first sandbox, so the PNGs were not
-   looked at yet. Download `mcshot-shots` from the Actions run page.
+1. Confirm the click fix and the full green run.
+2. The PNGs haven't been looked at by a person or agent yet: the artifact host is blocked from the first
+   sandbox. Download `mcshot-shots` from the Actions run page.
 
 ## Design decisions (and why)
 
