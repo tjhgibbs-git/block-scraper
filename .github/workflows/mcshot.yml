@@ -35,6 +35,14 @@ jobs:
         run: scripts/setup-headless.sh
       - name: Build
         run: ./gradlew build
+      - name: Dump Minecraft API on failure (for fixing renamed calls)
+        if: failure()
+        run: |
+          jar=$(find ~/.gradle/caches .gradle -name '*.jar' -path '*minecraft*' 2>/dev/null | while read -r j; do
+            unzip -l "$j" 2>/dev/null | grep -q 'net/minecraft/client/Minecraft.class' && echo "$j" && break; done)
+          echo "client jar: $jar"
+          javap -cp "$jar" net.minecraft.client.Minecraft net.minecraft.client.gui.Gui net.minecraft.client.Options \
+            | grep -iE 'class |toast|overlay|hide|resize|language|reloadResource|screen' || true
       - name: Milestones M1-M4 (headless)
         run: scripts/e2e.sh
       - name: Upload screenshots

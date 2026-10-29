@@ -109,7 +109,7 @@ final class Commands {
 			o.addProperty("guiScaleSetting", client.options.guiScale().get());
 			o.addProperty("lang", client.options.languageCode);
 			o.addProperty("inWorld", client.level != null);
-			o.addProperty("hud", !client.options.hideGui);
+			o.addProperty("hud", !Compat.hudHidden(client));
 		});
 		o.addProperty("lastOpen", lastScreenId);
 		o.addProperty("hotReload", Agent.describe());
@@ -195,7 +195,7 @@ final class Commands {
 			if (client.options.guiScale().get() != scale) {
 				throw new CommandException("gui scale " + scale + " is not available at this window size");
 			}
-			client.resizeDisplay();
+			client.resizeGui();
 			JsonObject r = new JsonObject();
 			r.addProperty("guiScale", String.valueOf(client.getWindow().getGuiScale()));
 			r.addProperty("guiWidth", client.getWindow().getGuiScaledWidth());
@@ -220,7 +220,7 @@ final class Commands {
 	}
 
 	private JsonElement hud(boolean on) {
-		context.runOnClient(client -> client.options.hideGui = !on);
+		context.runOnClient(client -> Compat.setHudHidden(client, !on));
 		context.waitTick();
 		return new JsonPrimitive(on);
 	}
@@ -347,7 +347,7 @@ final class Commands {
 		if (waitTicks > 0) {
 			context.waitTicks(waitTicks);
 		}
-		context.runOnClient(client -> client.getToastManager().clear());
+		context.runOnClient(Compat::clearToasts);
 
 		String fileName = out.getFileName().toString();
 		String name = fileName.endsWith(".png") ? fileName.substring(0, fileName.length() - 4) : fileName;
@@ -442,7 +442,7 @@ final class Commands {
 
 	private void awaitResourceReload(CompletableFuture<?> reload) {
 		// The loading overlay fades out on wall-clock time after the reload itself finishes.
-		waitUntil(client -> reload.isDone() && client.getOverlay() == null, RESOURCE_RELOAD_TIMEOUT, "resource reload");
+		waitUntil(client -> reload.isDone() && client.gui.overlay() == null, RESOURCE_RELOAD_TIMEOUT, "resource reload");
 		if (reload.isCompletedExceptionally()) {
 			reload.join(); // rethrows the failure
 		}
@@ -494,7 +494,7 @@ final class Commands {
 				world = null;
 			}
 			context.runOnClient(client -> {
-				client.options.hideGui = false;
+				Compat.setHudHidden(client, false);
 				client.gui.setScreen(new TitleScreen());
 			});
 		} catch (Throwable t) {
