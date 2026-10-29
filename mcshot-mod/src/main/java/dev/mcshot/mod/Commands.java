@@ -272,7 +272,16 @@ final class Commands {
 
 	private JsonElement click(double x, double y, int button) {
 		JsonObject o = hover(x, y).getAsJsonObject();
-		input.pressMouse(button);
+		// Simulated clicks through MouseHandler don't reach screens in 26.3 under the gametest framework, so deliver
+		// the press and release to the screen directly, as MouseHandler would.
+		context.runOnClient(client -> {
+			Screen screen = client.gui.screen();
+			if (screen == null) {
+				throw new CommandException("no screen open to click on");
+			}
+			Compat.clickScreen(screen, x, y, button);
+		});
+		context.waitTick();
 		o.addProperty("screen", currentScreen());
 		return o;
 	}

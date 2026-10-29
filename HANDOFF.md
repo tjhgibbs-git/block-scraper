@@ -1,11 +1,9 @@
 # Handoff: state of mcshot
 
-Written at the end of the first session, which ran in a sandbox that **could not reach maven.fabricmc.net or
-Mojang's servers**, so Minecraft could not be downloaded, compiled against or run. Everything that doesn't need
-Minecraft was built and tested; the Fabric side is written against the real 26.3 APIs but has **never been
-compiled**. Delete this file once the e2e run is green.
+The first session ran in a sandbox that **could not reach maven.fabricmc.net or Mojang's servers**, so the
+Fabric side was compiled and run only through GitHub Actions (below). Delete this file once e2e is green.
 
-## Verified here
+## Verified in the sandbox
 
 - `mcshot-core`: socket server and command queue. 6 tests: replies, error passing, malformed input, ordering.
 - `mcshot-agent`: hot swap. 2 tests that start a child JVM with the agent, recompile a class on disk and check the
@@ -15,26 +13,30 @@ compiled**. Delete this file once the e2e run is green.
 
 Run: `./gradlew -Pmcshot.coreOnly test && python3 -m unittest discover -s tests`
 
-## Not verified (next session, in an environment with Fabric/Mojang access)
+## Verified by CI (GitHub Actions, ubuntu-latest, Temurin 25)
 
-1. `./gradlew build`: first compile of `mcshot-mod` and `examples/sample-ui`. The MC/Fabric names came from Fabric
-   API's own 26.3 sources (`client.gui.screen()`, `TestInput`, `TestScreenshotOptions`, `Screens.getWidgets` …). The
-   guesses most likely to need fixing:
-   - `Minecraft.resizeDisplay()` (in `Commands.scale`)
-   - `Options.hideSplashTexts()`, `realmsNotifications()`, `narrator()`; `Minecraft.getToastManager().clear()`
-   - `InputConstants.getKey(String)` and `InputConstants.UNKNOWN` (in `Commands.key`)
-   - `LanguageManager.getLanguage/setSelected`, `Minecraft.reloadResourcePacks()`, `getOverlay()`
-   - `Window.getGuiScale()` (int or double; we only stringify it)
-   - `CycleButton.onOffBuilder(...).withTooltip(...).create(...)` and `GuiGraphics.renderOutline` in the sample
-   - Loom DSL in `gradle/mcshot.gradle` (`property`, `vmArg`, `runDir`) and `loom.mods { sourceSet 'main', ':mcshot-mod' }`
-2. `scripts/e2e.sh` (M1–M4). Things to watch:
-   - Does the gametest thread stay alive indefinitely while idle? (We poll the queue; the game is paused.)
-   - Does Xvfb + Mesa work with Minecraft 26.x's SDL3 window? `start` sets `SDL_VIDEODRIVER=x11` under Xvfb.
-   - Does the Gradle daemon pass `DISPLAY` from `xvfb-run` to the forked client? If not, set it in the run config.
-   - Are the agent's watched dirs right? `status` → `hotReload`; the agent defaults to the class path directories
-     plus `fabric.classPathGroups`. Override with `-Dmcshot.classDirs`.
-   - Shot time (target < 2 s) and edit→PNG time (target < 10 s; `reload` prints both halves).
-3. Push and check the GitHub Actions run; the PNGs are uploaded as the `mcshot-shots` artifact.
+Run 3 (commit 8b3bb6b), the first one where the client launched:
+- `./gradlew build` passes: Loom 1.19.3 resolves, Minecraft 26.3 downloads, everything compiles.
+- **M1 passes**: `start` under Xvfb answers in 34 s (cold), `status` is right (1280x720, GUI scale 3,
+  427x240 GUI), a title-screen shot takes ~250 ms and is non-blank (stddev 62), and a second shot is
+  **pixel-identical** (0 pixels differ). Mesa llvmpipe gives GL 4.5 core under Xvfb.
+- M2 so far: `screens`, `open sample-config --arg`, `widgets` (classes, bounds, EditBox value, hovered) and
+  `hover` work. `click` went through MouseHandler and did not reach the screen.
+
+Fixes since then (waiting on CI): `click` now calls the screen's `mouseClicked`/`mouseReleased` directly
+(reflection, until the `MouseButtonEvent` signature is confirmed); CI prints the client log and a `javap`
+probe when e2e fails.
+
+## Still open
+
+1. `click` via direct screen dispatch: confirm, then replace the reflection in `Compat.clickScreen`.
+2. HUD-hidden flag (F1): not a public member of `Options`/`Gui`/`Minecraft` in 26.3; `Compat` searches by
+   reflection. `status` shows `hud: unknown` until it's found. The CI probe lists private boolean fields.
+3. Rest of M2 (tooltip, scale, lang), M3 (hot reload timing) and M4 (world, HUD, inventory) haven't run yet.
+4. The sample screen's border is drawn with `GuiGraphicsExtractor.fill`; its title text was dropped until
+   the 26.3 text-drawing method name is known (the probe dumps the class).
+5. The artifact download host (blob.core.windows.net) is blocked from the first sandbox, so the PNGs were not
+   looked at yet. Download `mcshot-shots` from the Actions run page.
 
 ## Design decisions (and why)
 

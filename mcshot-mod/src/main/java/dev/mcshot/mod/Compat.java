@@ -1,8 +1,14 @@
 package dev.mcshot.mod;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.Arrays;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonInfo;
 
 import dev.mcshot.core.CommandException;
 
@@ -42,6 +48,29 @@ final class Compat {
 			}
 		}
 		throw new CommandException("mcshot cannot find the HUD-hidden flag in this Minecraft version");
+	}
+
+	/**
+	 * Calls {@code screen.mouseClicked(MouseButtonEvent, boolean doubleClick)} then {@code mouseReleased(MouseButtonEvent)}.
+	 * {@code MouseButtonEvent} is built from whichever constructor takes (double x, double y, MouseButtonInfo).
+	 */
+	static void clickScreen(Screen screen, double x, double y, int button) {
+		try {
+			Class<?> eventType = Class.forName("net.minecraft.client.input.MouseButtonEvent", true, Screen.class.getClassLoader());
+			Constructor<?> ctor = eventType.getConstructor(double.class, double.class, MouseButtonInfo.class);
+			Object event = ctor.newInstance(x, y, new MouseButtonInfo(button, 0));
+			Method clicked = screen.getClass().getMethod("mouseClicked", eventType, boolean.class);
+			Method released = screen.getClass().getMethod("mouseReleased", eventType);
+			clicked.invoke(screen, event, false);
+			released.invoke(screen, event);
+		} catch (InvocationTargetException e) {
+			Throwable cause = e.getCause();
+			throw cause instanceof RuntimeException re ? re : new IllegalStateException(cause);
+		} catch (ReflectiveOperationException e) {
+			String methods = Arrays.toString(Arrays.stream(screen.getClass().getMethods())
+					.filter(m -> m.getName().startsWith("mouse")).map(Method::toGenericString).toArray());
+			throw new CommandException("mcshot cannot deliver clicks in this Minecraft version (" + e + "). Screen mouse methods: " + methods);
+		}
 	}
 
 	private static Field field(Object target, String... names) {

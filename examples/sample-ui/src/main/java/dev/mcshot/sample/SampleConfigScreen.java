@@ -33,7 +33,7 @@ public class SampleConfigScreen extends Screen {
 
 		addRenderableWidget(CycleButton.onOffBuilder(sparkles)
 				.withTooltip(value -> Tooltip.create(Component.translatable("mcshot-sample-ui.config.sparkles.tooltip")))
-				.create(x, y + 25, 200, 20, Component.translatable("mcshot-sample-ui.config.sparkles", ""),
+				.create(x, y + 25, 200, 20, Component.translatable("mcshot-sample-ui.config.sparkles"),
 						(button, value) -> sparkles = value));
 
 		addRenderableWidget(Button.builder(Component.translatable("mcshot-sample-ui.config.clicks", clicks), button -> {
