@@ -280,14 +280,27 @@ final class Commands {
 		// Same sequence as MouseHandler.onButton: press, afterMouseAction, a frame, release, afterMouseAction.
 		MouseButtonEvent event = new MouseButtonEvent(x, y, new MouseButtonInfo(button, 0));
 		boolean[] handled = new boolean[2];
+		JsonObject target = new JsonObject();
 		context.runOnClient(client -> {
 			Screen screen = client.gui.screen();
 			if (screen == null) {
 				throw new CommandException("no screen open to click on");
 			}
+			screen.getChildAt(x, y).ifPresent(child -> {
+				target.addProperty("class", child.getClass().getName());
+				if (child instanceof AbstractWidget w) {
+					target.addProperty("textBefore", w.getMessage().getString());
+				}
+			});
 			handled[0] = screen.mouseClicked(event, false);
 			screen.afterMouseAction();
+			screen.getChildAt(x, y).ifPresent(child -> {
+				if (child instanceof AbstractWidget w) {
+					target.addProperty("textAfter", w.getMessage().getString());
+				}
+			});
 		});
+		o.add("target", target);
 		context.waitTick();
 		context.runOnClient(client -> {
 			Screen screen = client.gui.screen();
