@@ -36,6 +36,7 @@ Exit codes: 0 ok, 1 command failed, 2 bad usage, 3 no client running.
 | `screens` / `open <id> [--arg k=v]` | List / open registered screens. `class:<fqcn>` opens any screen class by reflection. |
 | `close` / `reopen` | Close the screen / build it again with the same args (picks up code changes) |
 | `size <w>x<h>` / `scale <n>` / `lang <code>` | Window size, GUI scale (0 = auto), language (reloads resources) |
+| `render-distance <chunks>` | Render distance, 2-32. Starts at 12 (`start --render-distance N` to change); Fabric's gametest framework alone would leave it at 5 |
 | `world [--flat\|--normal] [--creative\|--cheats]` / `leave` | Throwaway singleplayer world (flat, seed 1, frozen time and weather by default); `--creative` also allows commands |
 | `command <text>` | Run a command on the integrated server with full permissions (`'tp @a 0 -60 0'`) |
 | `hud on\|off` | F1 |

@@ -234,7 +234,8 @@ def cmd_start(o):
     gradlew = project / ("gradlew.bat" if os.name == "nt" else "gradlew")
     if not gradlew.exists():
         raise BlockScraperError(f"no gradlew in {project}; pass --project-dir")
-    cmd = [str(gradlew), o.task, "--console=plain", f"-Pblockscraper.port={o.port}", f"-Pblockscraper.size={o.size}"]
+    cmd = [str(gradlew), o.task, "--console=plain", f"-Pblockscraper.port={o.port}", f"-Pblockscraper.size={o.size}",
+           f"-Pblockscraper.renderDistance={o.render_distance}"]
     if o.idle_tick:
         cmd.append("-Pblockscraper.idleTick=true")
     java_home = o.java_home or os.environ.get("BLOCK_SCRAPER_JAVA_HOME")
@@ -512,6 +513,8 @@ def build_parser():
     def start_options(s):
         s.add_argument("--task", default=os.environ.get("BLOCK_SCRAPER_TASK", "runBlockScraper"), help="Gradle task (default runBlockScraper)")
         s.add_argument("--size", default="1280x720", help="initial window size (default 1280x720)")
+        s.add_argument("--render-distance", type=int, default=12, metavar="CHUNKS",
+                       help="render distance in chunks (default 12; Fabric's gametest framework would use 5)")
         s.add_argument("--java-home", help="JDK for the client, e.g. JetBrains Runtime (or $BLOCK_SCRAPER_JAVA_HOME)")
         s.add_argument("--idle-tick", action="store_true",
                        help="keep ticking between commands (responsive window, less deterministic)")
@@ -534,6 +537,8 @@ def build_parser():
     s.add_argument("size", type=size_arg, metavar="WxH")
     s = add("scale", "Set the GUI scale (0 = auto)")
     s.add_argument("scale", type=int)
+    s = add("render-distance", "Set the render distance in chunks (2-32); the default is 12")
+    s.add_argument("chunks", type=int)
     s = add("lang", "Switch language (e.g. de_de) and reload resources")
     s.add_argument("code")
     s = add("world", "Create and join a throwaway singleplayer world (flat, seed 1, frozen time by default)")
@@ -613,6 +618,8 @@ def remote(o):
         return "scale", {"scale": o.scale}
     if c == "lang":
         return "lang", {"code": o.code}
+    if c == "render-distance":
+        return "render-distance", {"chunks": o.chunks}
     if c == "world":
         return "world", {"normal": o.normal, "creative": o.creative, "cheats": o.cheats}
     if c == "command":

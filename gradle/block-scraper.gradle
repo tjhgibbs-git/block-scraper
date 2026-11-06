@@ -4,6 +4,7 @@
 // Optional -P properties (the block-scraper CLI passes these through):
 //   blockscraper.port      socket port (default 25599)
 //   blockscraper.size      initial window size (default 1280x720)
+//   blockscraper.renderDistance  chunks rendered around the camera (default 12; Fabric's gametest default is 5)
 //   blockscraper.idleTick  tick while idle so a visible window stays responsive (default false)
 //   blockscraper.javaHome  JDK to run the client with, e.g. JetBrains Runtime; enables enhanced class redefinition
 
@@ -26,6 +27,7 @@ loom {
 			property 'blockscraper.enabled', 'true'
 			property 'blockscraper.port', prop('blockscraper.port', '25599')
 			property 'blockscraper.size', prop('blockscraper.size', '1280x720')
+			property 'blockscraper.renderDistance', prop('blockscraper.renderDistance', '12')
 			property 'blockscraper.idleTick', prop('blockscraper.idleTick', 'false')
 			vmArg "-javaagent:${agentJar}"
 			if (javaHome != null) {
