@@ -74,6 +74,7 @@ final class Commands {
 			case "size" -> size(r.integer("width"), r.integer("height"));
 			case "scale" -> scale(r.integer("scale"));
 			case "lang" -> lang(r.string("code"));
+			case "render-distance" -> renderDistance(r.integer("chunks"));
 			case "world" -> world(r.flag("normal"), r.flag("creative"), r.flag("cheats"));
 			case "command" -> command(r.string("text"));
 			case "leave" -> leave();
@@ -116,6 +117,7 @@ final class Commands {
 			o.addProperty("guiScale", String.valueOf(w.getGuiScale()));
 			o.addProperty("guiScaleSetting", client.options.guiScale().get());
 			o.addProperty("lang", client.options.languageCode);
+			o.addProperty("renderDistance", client.options.renderDistance().get());
 			o.addProperty("inWorld", client.level != null);
 			o.addProperty("hud", hudVisible);
 		});
@@ -214,6 +216,22 @@ final class Commands {
 		return o;
 	}
 
+	/** Chunks rendered around the camera; in a world the integrated server follows it on its next tick. */
+	private JsonElement renderDistance(int chunks) {
+		if (chunks < 2 || chunks > 32) {
+			throw new CommandException("render distance must be 2-32 chunks");
+		}
+		int set = context.computeOnClient(client -> {
+			client.options.renderDistance().set(chunks);
+			return client.options.renderDistance().get();
+		});
+		context.waitTick();
+		if (set != chunks) {
+			throw new CommandException("render distance " + chunks + " is not available here (max " + set + ")");
+		}
+		return new JsonPrimitive(set);
+	}
+
 	private JsonElement lang(String code) {
 		CompletableFuture<?> reload = context.computeOnClient(client -> {
 			if (client.getLanguageManager().getLanguage(code) == null) {
@@ -241,22 +259,32 @@ final class Commands {
 
 	private JsonElement world(boolean normal, boolean creative, boolean cheats) {
 		if (world == null) {
-			// Consistent settings = flat, seed 1, no mobs, frozen time and weather.
-			world = context.worldBuilder().setUseConsistentSettings(!normal).adjustSettings(s -> {
-				if (creative) {
-					s.setGameMode(WorldCreationUiState.SelectedGameMode.CREATIVE);
-				}
-				if (creative || cheats) {
-					s.setAllowCommands(true);
-				}
-			}).create();
-			world.getConnection().waitForChunksRender();
+			// Join and wait for chunks at Fabric's 5-chunk distance (rendering grows with its square, and is slow
+			// under llvmpipe), then go back to the session's distance: farther chunks fill in on later ticks.
+			int target = context.computeOnClient(client -> client.options.renderDistance().get());
+			context.runOnClient(client -> client.options.renderDistance().set(Math.min(target, JOIN_RENDER_DISTANCE)));
+			try {
+				// Consistent settings = flat, seed 1, no mobs, frozen time and weather.
+				world = context.worldBuilder().setUseConsistentSettings(!normal).adjustSettings(s -> {
+					if (creative) {
+						s.setGameMode(WorldCreationUiState.SelectedGameMode.CREATIVE);
+					}
+					if (creative || cheats) {
+						s.setAllowCommands(true);
+					}
+				}).create();
+				world.getConnection().waitForChunksRender();
+			} finally {
+				context.runOnClient(client -> client.options.renderDistance().set(target));
+			}
 		}
 		JsonObject o = new JsonObject();
 		o.addProperty("save", world.getWorldSave().getSaveDirectory().toString());
 		o.addProperty("screen", currentScreen());
 		return o;
 	}
+
+	private static final int JOIN_RENDER_DISTANCE = 5;
 
 	/** Runs a command on the integrated server with full permissions, e.g. {@code gamemode creative @a}. */
 	private JsonElement command(String text) {

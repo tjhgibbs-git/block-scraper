@@ -74,9 +74,17 @@ public final class BlockScraperSession implements FabricClientGameTest {
 		}
 	}
 
-	/** Settings that make shots repeatable. The gametest API already disables tutorials, clouds and onboarding. */
+	/** Chunks rendered around the camera. Fabric's gametest framework forces 5, too short to see a big build. */
+	static final int DEFAULT_RENDER_DISTANCE = 12;
+
+	/**
+	 * Settings that make shots repeatable. The gametest API already disables tutorials, clouds and onboarding; it
+	 * also sets the render distance to 5, so put it back to {@code -Dblockscraper.renderDistance} (default 12).
+	 */
 	private static void makeDeterministic(ClientGameTestContext context) {
+		int renderDistance = Integer.getInteger("blockscraper.renderDistance", DEFAULT_RENDER_DISTANCE);
 		context.runOnClient(client -> {
+			client.options.renderDistance().set(renderDistance);
 			client.options.pauseOnLostFocus = false;
 			client.options.narrator().set(NarratorStatus.OFF);
 			client.options.hideSplashTexts().set(true);
